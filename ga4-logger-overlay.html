@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GA4 + Marketing Pixel Logger</title>
+    <!-- Font Awesome for brand icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="./ga4-logger-overlay.css">
+  
+</head>
+
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center;">
+            <div class="title">🎯 Pixel Logger</div>
+            <input id="filterInput" type="text" placeholder="Filter events..." class="filter-input" />
+            <button class="button-common theme-toggle" id="themeToggle">🌙 Dark</button>
+            <button class="button-common toggle-details-btn" id="toggleDetailsBtn">Expand All</button>
+            <button class="button-common toggle-details-btn" id="clearOutputBtn">Clear Output</button>
+            <button class="button-common nav-btn" id="prevPageBtn" title="Previous Page">◀</button>
+            <button class="button-common nav-btn" id="nextPageBtn" title="Next Page">▶</button>
+            <button class="button-common settings-toggle" id="settingsToggle">⚙️ Settings</button>
+        </div>
+        <div class="status" id="status">Connecting...</div>
+        
+        <!-- Settings Dropdown Panel -->
+        <div class="settings-dropdown" id="settingsDropdown">
+            <div class="settings-panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">🎛️ Platform Display Settings</h3>
+                    <button class="panel-close" id="panelClose">×</button>
+                </div>
+                <div class="panel-body">
+            
+            <div class="platform-section">
+                <div class="section-title">Display Options</div>
+                <div class="platform-grid">
+                    <label class="platform-item">
+                        <input type="checkbox" id="showServerCookiesToggle">
+                        <span class="icon">🌐</span>
+                        <span class="name">Server Cookies</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="showClientCookiesToggle">
+                        <span class="icon">🖥️</span>
+                        <span class="name">Client Cookies</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="showDataLayerToggle" checked>
+                        <span class="icon">📋</span>
+                        <span class="name">Show DataLayer</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="showInfoToggle">
+                        <span class="icon">💡</span>
+                        <span class="name">Show Info</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="showJavaScriptEndpointsToggle">
+                        <span class="icon">📜</span>
+                        <span class="name">JavaScript Files</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="platform-section">
+                <div class="section-title">Analytics Platforms</div>
+                <div class="platform-grid">
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-GA4" checked>
+                        <span class="icon">📊</span>
+                        <span class="name">GA4</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-sGTM" checked>
+                        <input type="checkbox" id="toggle-Server-side GTM" checked class="hidden-checkbox">
+                        <span class="icon"><i class="fa-solid fa-server brand-icon icon-google"></i></span>
+                        <span class="name">Server GTM</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Adobe Analytics" checked>
+                        <span class="icon"><i class="fa-solid fa-chart-line brand-icon icon-adobe"></i></span>
+                        <span class="name">Adobe</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Segment" checked>
+                        <span class="icon"><i class="fa-solid fa-chart-pie brand-icon icon-segment"></i></span>
+                        <span class="name">Segment</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Mixpanel" checked>
+                        <span class="icon"><i class="fa-solid fa-chart-bar brand-icon icon-mixpanel"></i></span>
+                        <span class="name">Mixpanel</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Privacy Sandbox" checked>
+                        <span class="icon"><i class="fa-solid fa-shield-halved brand-icon icon-privacy-sandbox"></i></span>
+                        <span class="name">Privacy Sandbox</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Custom Tracking" checked>
+                        <span class="icon"><i class="fa-solid fa-gear brand-icon"></i></span>
+                        <span class="name">Custom</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="platform-section">
+                <div class="section-title">Social Media Platforms</div>
+                <div class="platform-grid">
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Facebook" checked>
+                        <span class="icon"><i class="fa-brands fa-facebook brand-icon icon-facebook"></i></span>
+                        <span class="name">Facebook</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-TikTok" checked>
+                        <span class="icon"><i class="fa-brands fa-tiktok brand-icon icon-tiktok"></i></span>
+                        <span class="name">TikTok</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Snapchat" checked>
+                        <span class="icon"><i class="fa-brands fa-snapchat brand-icon icon-snapchat"></i></span>
+                        <span class="name">Snapchat</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Pinterest" checked>
+                        <span class="icon"><i class="fa-brands fa-pinterest brand-icon icon-pinterest"></i></span>
+                        <span class="name">Pinterest</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-LinkedIn" checked>
+                        <span class="icon"><i class="fa-brands fa-linkedin brand-icon icon-linkedin"></i></span>
+                        <span class="name">LinkedIn</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Twitter/X" checked>
+                        <span class="icon"><i class="fa-brands fa-x-twitter brand-icon icon-twitter"></i></span>
+                        <span class="name">Twitter/X</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="platform-section">
+                <div class="section-title">Advertising Platforms</div>
+                <div class="platform-grid">
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Google Ads" checked>
+                        <span class="icon"><svg class="brand-icon icon-google-ads" viewBox="0 -13 256 256" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid"><path d="M5.888,166.405103 L90.88,20.9 C101.676138,27.2558621 156.115862,57.3844138 164.908138,63.1135172 L79.9161379,208.627448 C70.6206897,220.906621 -5.888,185.040138 5.888,166.396276 L5.888,166.405103 Z" fill="#FBBC04"/><path d="M250.084224,166.401789 L165.092224,20.9055131 C153.210293,1.13172 127.619121,-6.05393517 106.600638,5.62496138 C85.582155,17.3038579 79.182155,42.4624786 91.0640861,63.1190303 L176.056086,208.632961 C187.938017,228.397927 213.52919,235.583582 234.547672,223.904686 C254.648086,212.225789 261.966155,186.175582 250.084224,166.419444 L250.084224,166.401789 Z" fill="#4285F4"/><ellipse fill="#34A853" cx="42.6637241" cy="187.924414" rx="42.6637241" ry="41.6044138"/></svg></span>
+                        <span class="name">Google Ads</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-DoubleClick" checked>
+                        <span class="icon"><svg class="brand-icon icon-doubleclick" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid"><defs><linearGradient x1="0%" y1="50%" x2="99.999319%" y2="50%" id="linearGradient-1"><stop stop-color="#246FDB" offset="0%"/><stop stop-color="#2973DF" offset="5.52%"/><stop stop-color="#377DEB" offset="27.81%"/><stop stop-color="#3F83F2" offset="54.91%"/><stop stop-color="#4285F4" offset="100%"/></linearGradient></defs><path d="M173.2,82.8 C198.2,107.8 198.2,148.3 173.2,173.3 C160.7,185.8 160.7,206.1 173.2,218.5 C185.7,231 206,231 218.5,218.5 C268.5,168.5 268.5,87.5 218.5,37.5 L173.2,82.8 Z" fill="#EA4335"/><path d="M218.4,37.5 C168.4,-12.5 87.5,-12.5 37.5,37.5 C-12.5,87.5 -12.5,168.5 37.5,218.5 L82.8,173.3 C57.8,148.3 57.8,107.8 82.8,82.8 C107.8,57.8 148.3,57.8 173.3,82.8 L218.4,37.5 Z" fill="url(#linearGradient-1)"/><path d="M82.8,82.8 C107.8,57.8 148.3,57.8 173.3,82.8 L218.5,37.5 C206,25 185.7,25 173.2,37.5 C160.7,50 160.7,70.3 173.2,82.8 Z" fill="#34A853"/><path d="M37.5,218.4 C87.5,268.4 168.5,268.4 218.5,218.4 L173.3,173.2 C148.3,198.2 107.8,198.2 82.8,173.2 C70.3,160.7 50,160.7 37.5,173.2 C25,185.7 25,206 37.5,218.4 Z" fill="#FBBC04"/></svg></span>
+                        <span class="name">DoubleClick</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Microsoft/Bing" checked>
+                        <span class="icon"><i class="fa-brands fa-microsoft brand-icon icon-microsoft"></i></span>
+                        <span class="name">Bing Ads</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Amazon" checked>
+                        <span class="icon"><i class="fa-brands fa-amazon brand-icon icon-amazon"></i></span>
+                        <span class="name">Amazon</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Criteo" checked>
+                        <span class="icon"><i class="fa-solid fa-rectangle-ad brand-icon icon-criteo"></i></span>
+                        <span class="name">Criteo</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Reddit" checked>
+                        <span class="icon"><i class="fa-brands fa-reddit brand-icon icon-reddit"></i></span>
+                        <span class="name">Reddit</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Quora" checked>
+                        <span class="icon"><i class="fa-brands fa-quora brand-icon icon-quora"></i></span>
+                        <span class="name">Quora</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Outbrain" checked>
+                        <span class="icon"><i class="fa-solid fa-brain brand-icon icon-outbrain"></i></span>
+                        <span class="name">Outbrain</span>
+                    </label>
+                    <label class="platform-item">
+                        <input type="checkbox" id="toggle-Taboola" checked>
+                        <span class="icon"><i class="fa-solid fa-fire brand-icon icon-taboola"></i></span>
+                        <span class="name">Taboola</span>
+                    </label>
+                </div>
+            </div>
+            
+                </div>
+                <div class="panel-footer">
+                    <button class="panel-btn secondary" id="selectAllBtn">Select All</button>
+                    <button class="panel-btn secondary" id="selectNoneBtn">Select None</button>
+                    <button class="panel-btn primary" id="applySettingsBtn">Apply Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="content" id="content">
+        <div class="empty-state">
+            <div class="empty-icon">📊</div>
+            <div>Waiting for GA4 and marketing pixel events...</div>
+            <div class="empty-state-text-small">Events from GA4 and marketing pixel events will appear here</div>
+        </div>
+    </div>
+    <div class="resize-handle"></div>
+
+    <script src="./ga4-logger-overlay.js"></script>
+</body>
+</html>

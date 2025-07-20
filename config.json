@@ -1,0 +1,684 @@
+{
+  "ui": {
+    "ga4Icon": "📊",
+    "typeIconMap": {
+      "consent": "🛡️",
+      "error": "❌",
+      "warning": "⚠️",
+      "info": "💡",
+      "success": "✅",
+      "datalayer": "📋",
+      "url_change": "🌐",
+      "cookie": "🍪",
+      "request_status_update": "📡"
+    },
+    "statusColors": {
+      "info": "#64B5F6",
+      "success": "#66BB6A",
+      "warning": "#FFB74D",
+      "error": "#F06292"
+    },
+    "ga4Limits": {
+      "event_name": 40,
+      "custom_parameter": 100,
+      "item_name": 100,
+      "item_id": 100,
+      "item_brand": 100,
+      "item_category": 100,
+      "item_variant": 100,
+      "promotion_name": 100,
+      "creative_name": 100,
+      "location_id": 100,
+      "affiliation": 100,
+      "coupon": 100,
+      "currency": 3,
+      "method": 100,
+      "number_of_terms": 100,
+      "payment_type": 100,
+      "shipping_tier": 100,
+      "content_type": 100,
+      "custom_map": 100,
+      "description": 100
+    }
+  },
+  "websocket": {
+    "port": 9999,
+    "host": "localhost",
+    "maxReconnectAttempts": 5,
+    "reconnectDelay": 2000,
+    "connectionTimeout": 5000
+  },
+  "logging": {
+    "debugMode": true,
+    "enableWebSocketOutput": true,
+    "enableDataLayerLogging": true,
+    "logFormat": "json"
+  },
+  "proxy": {
+    "ignoreCertificateErrors": true,
+    "defaultPort": 8080,
+    "autoFindPort": true
+  },
+  "browser": {
+    "headless": false,
+    "devtools": false,
+    "defaultViewport": {
+      "width": 1200,
+      "height": 800
+    }
+  },
+  "platformConfigs": {
+    "GA4": {
+      "name": "GA4",
+      "hosts": ["www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "region1.google-analytics.com","region1.analytics.google.com", "www.google.com"],
+      "paths": ["/g/collect", "/g/s/collect", "/collect", "/r/collect", "/gtag/js", "/mp/collect"],
+      "paramMap": {
+        "tid": "tracking_id",
+        "cid": "client_id",
+        "sid": "session_id",
+        "en": "event_name",
+        "dl": "page_location",
+        "dt": "page_title",
+        "_p": "timestamp_micros",
+        "gcs": "consent_state",
+        "gdpr": "gdpr_applies",
+        "gdpr_consent": "gdpr_consent_string",
+        "npa": "non_personalized_ads",
+        "dma": "data_management_agreement",
+        "dma_cps": "dma_consent_purposes"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "en",
+      "customEventHandler": "ga4_events",
+      "description": "Google Analytics 4 - Web analytics platform for tracking user behavior, page views, conversions, and custom events.",
+      "ui": {
+        "icon": "📊",
+        "color": "#EA4335",
+        "highlightClass": "universal-highlight-ga4"
+      }
+    },
+    "Facebook": {
+      "name": "Facebook",
+      "hosts": ["www.facebook.com", "facebook.com", "connect.facebook.net", "pixel.facebook.com", "analytics.facebook.com"],
+      "paths": ["/tr", "/tr/", "/events", "/pixel", "/fbevents.js"],
+      "paramMap": {
+        "id": "pixel_id",
+        "ev": "event_name",
+        "cd[content_name]": "content_name",
+        "cd[content_category]": "content_category",
+        "cd[content_ids]": "content_ids",
+        "cd[content_type]": "content_type",
+        "cd[value]": "value",
+        "cd[currency]": "currency",
+        "cd[num_items]": "num_items",
+        "dl": "page_url",
+        "rl": "referrer_url",
+        "if": "iframe",
+        "ts": "timestamp",
+        "sw": "screen_width",
+        "sh": "screen_height"
+      },
+      "pixelIdKey": "id",
+      "eventNameKey": "ev",
+      "description": "Facebook Pixel - Tracks user behavior for Facebook advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-facebook brand-icon icon-facebook\"></i>",
+        "color": "#1877F2",
+        "highlightClass": "universal-highlight-facebook"
+      }
+    },
+    "TikTok": {
+      "name": "TikTok",
+      "hosts": ["analytics.tiktok.com", "business-api.tiktok.com", "ads.tiktok.com"],
+      "paths": ["/api/v2/pixel/track/", "/api/v1/pixel/track/", "/i18n/pixel/events.js"],
+      "paramMap": {
+        "pixel_code": "pixel_id",
+        "event": "event_name",
+        "event_id": "event_id",
+        "value": "value",
+        "currency": "currency",
+        "content_id": "content_id",
+        "content_type": "content_type",
+        "content_name": "content_name",
+        "description": "description",
+        "query": "search_term"
+      },
+      "pixelIdKey": "pixel_code",
+      "eventNameKey": "event",
+      "description": "TikTok Pixel - Tracks user interactions for TikTok advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-tiktok brand-icon icon-tiktok\"></i>",
+        "color": "#000000",
+        "highlightClass": "universal-highlight-tiktok"
+      }
+    },
+    "LinkedIn": {
+      "name": "LinkedIn",
+      "hosts": ["px.ads.linkedin.com", "www.linkedin.com", "snap.licdn.com", "licdn.com"],
+      "paths": ["/collect", "/li.lms-analytics/", "/px"],
+      "paramMap": {
+        "pid": "partner_id",
+        "conversionId": "conversion_id",
+        "eventId": "event_id",
+        "fmt": "format",
+        "url": "page_url",
+        "v": "value",
+        "c": "currency",
+        "orderId": "order_id",
+        "tm": "tag_manager",
+        "li_fat_id": "li_fat_id"
+      },
+      "pixelIdKey": "pid",
+      "eventNameKey": "conversionId",
+      "customEventHandler": "linkedin_events",
+      "description": "LinkedIn Insight Tag - B2B marketing analytics and advertising pixel.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-linkedin brand-icon icon-linkedin\"></i>",
+        "color": "#0077B5",
+        "highlightClass": "universal-highlight-linkedin"
+      }
+    },
+    "Google Ads": {
+      "name": "Google Ads",
+      "hosts": ["www.googleadservices.com","adservice.google.com,", "googleads.g.doubleclick.net", "adservice.google.com", "pagead2.googlesyndication.com", "www.googletagmanager.com", "www.google.com", "www.google.de", "www.google.co.uk", "www.google.fr", "www.google.es", "www.google.it", "www.google.nl", "www.google.be", "www.google.at", "www.google.ch", "www.google.pl", "www.google.cz", "www.google.se", "www.google.dk", "www.google.no", "www.google.fi", "www.google.ie", "www.google.pt", "www.google.gr", "www.google.hu", "www.google.ro", "www.google.bg", "www.google.hr", "www.google.sk", "www.google.si", "www.google.lt", "www.google.lv", "www.google.ee", "www.google.lu", "www.google.mt", "www.google.cy"],
+      "paths": ["/pagead/conversion/", "/pagead/1p-conversion/", "/pagead/landing", "/pagead/1p-user-list/", "/ads/", "/a"],
+      "paramMap": {
+        "label": "conversion_label",
+        "guid": "guid",
+        "value": "value",
+        "currency_code": "currency",
+        "gclid": "gclid",
+        "tid": "conversion_id",
+        "gtm": "gtm_id",
+        "ord": "order_id"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "label",
+      "customEventHandler": "google_ads_events",
+      "description": "Google Ads - Conversion tracking and remarketing for Google advertising campaigns.",
+      "ui": {
+        "icon": "<svg class=\"brand-icon icon-google-ads\" viewBox=\"0 -13 256 256\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M5.888,166.405103 L90.88,20.9 C101.676138,27.2558621 156.115862,57.3844138 164.908138,63.1135172 L79.9161379,208.627448 C70.6206897,220.906621 -5.888,185.040138 5.888,166.396276 L5.888,166.405103 Z\" fill=\"#FBBC04\"/><path d=\"M250.084224,166.401789 L165.092224,20.9055131 C153.210293,1.13172 127.619121,-6.05393517 106.600638,5.62496138 C85.582155,17.3038579 79.182155,42.4624786 91.0640861,63.1190303 L176.056086,208.632961 C187.938017,228.397927 213.52919,235.583582 234.547672,223.904686 C254.648086,212.225789 261.966155,186.175582 250.084224,166.419444 L250.084224,166.401789 Z\" fill=\"#4285F4\"/><ellipse fill=\"#34A853\" cx=\"42.6637241\" cy=\"187.924414\" rx=\"42.6637241\" ry=\"41.6044138\"/></svg>",
+        "color": "#4285F4",
+        "highlightClass": "universal-highlight-google-ads"
+      }
+    },
+    "sGTM": {
+      "name": "sGTM",
+      "hosts": ["tm.handmadekultur.de", "sgtm.example.com", "gtm.example.com"],
+      "paths": ["/gtm/", "/collect", "/mp/collect", "/g/collect", "/analytics/", "/track", "/events"],
+      "paramMap": {
+        "tid": "measurement_id",
+        "cid": "client_id",
+        "en": "event_name",
+        "dl": "page_location",
+        "dt": "page_title",
+        "sid": "session_id",
+        "uid": "user_id",
+        "gcs": "consent_state",
+        "dma": "data_management_agreement"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "en",
+      "description": "Server-side Google Tag Manager - First-party server tracking solution.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-server brand-icon icon-google\"></i>",
+        "color": "#EA4335",
+        "highlightClass": "universal-highlight-sgtm"
+      }
+    },
+    "Server-side GTM": {
+      "name": "Server-side GTM",
+      "hosts": ["tm.handmadekultur.de", "sgtm.example.com", "gtm.example.com"],
+      "paths": ["/gtm/", "/collect", "/mp/collect", "/g/collect", "/analytics/", "/track", "/events"],
+      "paramMap": {
+        "tid": "measurement_id",
+        "cid": "client_id",
+        "en": "event_name",
+        "dl": "page_location",
+        "dt": "page_title",
+        "sid": "session_id",
+        "uid": "user_id",
+        "gcs": "consent_state",
+        "dma": "data_management_agreement"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "en",
+      "description": "Server-side Google Tag Manager - First-party server tracking solution.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-server brand-icon icon-google\"></i>",
+        "color": "#EA4335",
+        "highlightClass": "universal-highlight-sgtm"
+      }
+    },
+    "Snapchat": {
+      "name": "Snapchat",
+      "hosts": ["tr.snapchat.com", "sc-static.net", "ads.snapchat.com"],
+      "paths": ["/p", "/cm/p", "/pixel"],
+      "paramMap": {
+        "pid": "pixel_id",
+        "ev": "event_name",
+        "rf": "referrer",
+        "u": "page_url",
+        "v": "value",
+        "c": "currency",
+        "i": "item_ids",
+        "n": "item_number",
+        "t": "transaction_id",
+        "eid": "event_id"
+      },
+      "pixelIdKey": "pid",
+      "eventNameKey": "ev",
+      "description": "Snapchat Pixel - Tracks user interactions for Snapchat advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-snapchat brand-icon icon-snapchat\"></i>",
+        "color": "#FFFC00",
+        "highlightClass": "universal-highlight-snapchat"
+      }
+    },
+    "Pinterest": {
+      "name": "Pinterest",
+      "hosts": ["ct.pinterest.com", "analytics.pinterest.com", "s.pinimg.com"],
+      "paths": ["/v3/", "/user/", "/conversion/"],
+      "paramMap": {
+        "tid": "tag_id",
+        "event": "event_name",
+        "dep": "dependency_event",
+        "ed[value]": "value",
+        "ed[currency]": "currency",
+        "ed[content_ids]": "content_ids",
+        "ed[content_name]": "content_name",
+        "ed[content_category]": "content_category",
+        "ed[num_items]": "num_items",
+        "ed[order_id]": "order_id"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "event",
+      "customEventHandler": "pinterest_events",
+      "description": "Pinterest Tag - Conversion tracking and audience insights for Pinterest advertising.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-pinterest brand-icon icon-pinterest\"></i>",
+        "color": "#E60023",
+        "highlightClass": "universal-highlight-pinterest"
+      }
+    },
+    "Twitter/X": {
+      "name": "Twitter/X",
+      "hosts": ["analytics.twitter.com", "t.co", "ads-api.twitter.com"],
+      "paths": ["/i/adsct", "/adsct", "/conversion_async"],
+      "paramMap": {
+        "txn_id": "pixel_id",
+        "p_id": "conversion_id",
+        "tw_sale_amount": "value",
+        "tw_order_quantity": "quantity",
+        "event_id": "event_id"
+      },
+      "pixelIdKey": "txn_id",
+      "eventNameKey": "p_id",
+      "description": "Twitter/X Pixel - Conversion tracking for Twitter advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-x-twitter brand-icon icon-twitter\"></i>",
+        "color": "#1DA1F2",
+        "highlightClass": "universal-highlight-twitter"
+      }
+    },
+    "Microsoft/Bing": {
+      "name": "Microsoft/Bing",
+      "hosts": ["bat.bing.com", "bat.bing.net", "uet.bing.com", "analytics.live.com"],
+      "paths": ["/action/", "/bat.js", "/uet.js", "/p/insights/"],
+      "paramMap": {
+        "ti": "tag_id",
+        "evt": "event_name",
+        "gv": "goal_value",
+        "gc": "goal_currency",
+        "p": "page_url",
+        "rn": "revenue"
+      },
+      "pixelIdKey": "ti",
+      "eventNameKey": "evt",
+      "description": "Microsoft Advertising (Bing) UET Tag - Universal Event Tracking for Bing Ads campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-microsoft brand-icon icon-microsoft\"></i>",
+        "color": "#00BCF2",
+        "highlightClass": "universal-highlight-microsoft"
+      }
+    },
+    "Amazon": {
+      "name": "Amazon",
+      "hosts": ["s.amazon-adsystem.com", "aax.amazon-adsystem.com", "fls-na.amazon.com"],
+      "paths": ["/px/", "/e/ir", "/x/c/"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Amazon DSP Pixel - Tracks user behavior for Amazon advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-amazon brand-icon icon-amazon\"></i>",
+        "color": "#FF9900",
+        "highlightClass": "universal-highlight-amazon"
+      }
+    },
+    "Criteo": {
+      "name": "Criteo",
+      "hosts": ["dis.criteo.com", "gum.criteo.com", "static.criteo.net"],
+      "paths": ["/dis/rtb/", "/api/", "/events/"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Criteo Pixel - Dynamic retargeting and performance marketing platform.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-rectangle-ad brand-icon icon-criteo\"></i>",
+        "color": "#F68B1E",
+        "highlightClass": "universal-highlight-criteo"
+      }
+    },
+    "Reddit": {
+      "name": "Reddit",
+      "hosts": ["alb.reddit.com", "events.reddit.com", "www.redditstatic.com"],
+      "paths": ["/h", "/events", "/conversions"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Reddit Pixel - Conversion tracking for Reddit advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-reddit brand-icon icon-reddit\"></i>",
+        "color": "#FF4500",
+        "highlightClass": "universal-highlight-reddit"
+      }
+    },
+    "Quora": {
+      "name": "Quora",
+      "hosts": ["q.quora.com", "qpx.quora.com"],
+      "paths": ["/qevents.js", "/trk"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Quora Pixel - Tracks user engagement for Quora advertising campaigns.",
+      "ui": {
+        "icon": "<i class=\"fa-brands fa-quora brand-icon icon-quora\"></i>",
+        "color": "#B92B27",
+        "highlightClass": "universal-highlight-quora"
+      }
+    },
+    "Outbrain": {
+      "name": "Outbrain",
+      "hosts": ["tr.outbrain.com", "widgets.outbrain.com"],
+      "paths": ["/unifiedPixel", "/utils/"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Outbrain Pixel - Content discovery and native advertising tracking.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-brain brand-icon icon-outbrain\"></i>",
+        "color": "#0070F3",
+        "highlightClass": "universal-highlight-outbrain"
+      }
+    },
+    "Taboola": {
+      "name": "Taboola",
+      "hosts": ["trc.taboola.com", "cdn.taboola.com"],
+      "paths": ["/actions/", "/libtrc/"],
+      "paramMap": {
+        "pixel_id": "pixel_id",
+        "event": "event_name",
+        "value": "value",
+        "currency": "currency",
+        "url": "page_url",
+        "ref": "referrer"
+      },
+      "pixelIdKey": "pixel_id",
+      "eventNameKey": "event",
+      "description": "Taboola Pixel - Native advertising and content recommendation tracking.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-fire brand-icon icon-taboola\"></i>",
+        "color": "#1A73E8",
+        "highlightClass": "universal-highlight-taboola"
+      }
+    },
+    "DoubleClick": {
+      "name": "DoubleClick",
+      "hosts": ["googleads.g.doubleclick.net", "ad.doubleclick.net", "cm.g.doubleclick.net", "stats.g.doubleclick.net", "pubads.g.doubleclick.net", "pagead2.googlesyndication.com", "googleleads.g.doubleclick.net"],
+      "paths": ["/pagead/", "/gampad/", "/ddm/", "/xbbe/", "/activity", "/conversion/", "/ads/", "/g/collect", "/pagead/viewthroughconversion/"],
+      "paramMap": {
+        "gclid": "google_click_id",
+        "label": "conversion_label",
+        "value": "value",
+        "currency_code": "currency",
+        "ord": "order_id",
+        "num": "random_number",
+        "url": "page_url",
+        "ref": "referrer",
+        "dc_lat": "latitude",
+        "dc_rdid": "device_id",
+        "gtm": "gtm_id",
+        "auid": "advertiser_user_id",
+        "t": "event_type",
+        "tid": "tracking_id",
+        "cid": "client_id",
+        "_u": "user_properties",
+        "cv": "conversion_value",
+        "fst": "first_seen_time",
+        "guid": "google_user_id",
+        "gcd": "google_consent_data",
+        "dma": "data_management_agreement",
+        "dma_cps": "consent_purposes",
+        "fledge": "privacy_sandbox_fledge"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "t",
+      "customEventHandler": "doubleclick_events",
+      "description": "Google DoubleClick - Display advertising and programmatic buying platform.",
+      "ui": {
+        "icon": "<svg class=\"brand-icon icon-doubleclick\" viewBox=\"0 0 256 256\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M173.2,82.8 C198.2,107.8 198.2,148.3 173.2,173.3 C160.7,185.8 160.7,206.1 173.2,218.5 C185.7,231 206,231 218.5,218.5 C268.5,168.5 268.5,87.5 218.5,37.5 L173.2,82.8 Z\" fill=\"#EA4335\"/><path d=\"M218.4,37.5 C168.4,-12.5 87.5,-12.5 37.5,37.5 C-12.5,87.5 -12.5,168.5 37.5,218.5 L82.8,173.3 C57.8,148.3 57.8,107.8 82.8,82.8 C107.8,57.8 148.3,57.8 173.3,82.8 L218.4,37.5 Z\" fill=\"#4285F4\"/><path d=\"M82.8,82.8 C107.8,57.8 148.3,57.8 173.3,82.8 L218.5,37.5 C206,25 185.7,25 173.2,37.5 C160.7,50 160.7,70.3 173.2,82.8 Z\" fill=\"#34A853\"/><path d=\"M37.5,218.4 C87.5,268.4 168.5,268.4 218.5,218.4 L173.3,173.2 C148.3,198.2 107.8,198.2 82.8,173.2 C70.3,160.7 50,160.7 37.5,173.2 C25,185.7 25,206 37.5,218.4 Z\" fill=\"#FBBC04\"/></svg>",
+        "color": "#4285F4",
+        "highlightClass": "universal-highlight-doubleclick"
+      }
+    },
+    "Adobe Analytics": {
+      "name": "Adobe Analytics",
+      "hosts": [],
+      "paths": ["/b/ss/", "/collect", "/beacon", "/track", "/analytics"],
+      "paramMap": {
+        "s": "report_suite",
+        "AQB": "query_builder",
+        "AQE": "query_end",
+        "ndh": "no_document_height",
+        "ce": "character_encoding",
+        "cl": "color_depth",
+        "c": "currency",
+        "events": "events",
+        "pageName": "page_name",
+        "g": "page_url",
+        "r": "referrer",
+        "vid": "visitor_id"
+      },
+      "pixelIdKey": "s",
+      "eventNameKey": "events",
+      "description": "Adobe Analytics - Enterprise web analytics platform.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-chart-line brand-icon icon-adobe\"></i>",
+        "color": "#FF0000",
+        "highlightClass": "universal-highlight-adobe"
+      }
+    },
+    "Segment": {
+      "name": "Segment",
+      "hosts": ["api.segment.io", "cdn.segment.com"],
+      "paths": ["/v1/track", "/v1/page", "/v1/identify", "/v1/group", "/v1/alias", "/v1/batch"],
+      "paramMap": {
+        "writeKey": "write_key",
+        "userId": "user_id",
+        "anonymousId": "anonymous_id",
+        "event": "event_name",
+        "properties": "properties",
+        "traits": "traits",
+        "context": "context",
+        "timestamp": "timestamp",
+        "messageId": "message_id"
+      },
+      "pixelIdKey": "writeKey",
+      "eventNameKey": "event",
+      "description": "Segment - Customer data platform for unified analytics.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-chart-pie brand-icon icon-segment\"></i>",
+        "color": "#52BD95",
+        "highlightClass": "universal-highlight-segment"
+      }
+    },
+    "Mixpanel": {
+      "name": "Mixpanel",
+      "hosts": ["api.mixpanel.com", "api-eu.mixpanel.com", "cdn.mxpnl.com"],
+      "paths": ["/track", "/engage", "/import", "/decide", "/groups"],
+      "paramMap": {
+        "token": "project_token",
+        "distinct_id": "distinct_id",
+        "event": "event_name",
+        "properties": "properties",
+        "time": "timestamp",
+        "ip": "ip_address"
+      },
+      "pixelIdKey": "token",
+      "eventNameKey": "event",
+      "description": "Mixpanel - Product analytics platform.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-chart-bar brand-icon icon-mixpanel\"></i>",
+        "color": "#7856FF",
+        "highlightClass": "universal-highlight-mixpanel"
+      }
+    },
+    "Privacy Sandbox": {
+      "name": "Privacy Sandbox",
+      "hosts": ["www.facebook.com", "facebook.com", "googleads.g.doubleclick.net", "www.google.com", "google.com", "ads.google.com", "tpc.googlesyndication.com", "region1.google-analytics.com"],
+      "paths": ["/privacy_sandbox/", "/topics/", "/fledge/", "/attribution_reporting/", "/trust_tokens/", "/private_aggregation/", "/shared_storage/"],
+      "paramMap": {
+        "id": "pixel_id",
+        "topic_id": "topic_identifier",
+        "interest_group": "audience_group",
+        "conversion_id": "conversion_identifier",
+        "attribution_data": "attribution_info",
+        "aggregation_key": "aggregation_identifier",
+        "shared_storage_key": "storage_key"
+      },
+      "pixelIdKey": "id",
+      "eventNameKey": "event_type",
+      "customEventHandler": "privacy_sandbox_events",
+      "description": "Google Privacy Sandbox - Privacy-preserving advertising technologies.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-shield-halved brand-icon icon-privacy-sandbox\"></i>",
+        "color": "#34A853",
+        "highlightClass": "universal-highlight-privacy-sandbox"
+      }
+    },
+    "Google Consent Collection": {
+      "name": "Google Consent Collection",
+      "hosts": ["www.google.com", "google.com", "www.googletagmanager.com", "googletagmanager.com"],
+      "paths": ["/ccm/collect"],
+      "paramMap": {
+        "tid": "tracking_id",
+        "cid": "client_id",
+        "gcs": "consent_state",
+        "gdpr": "gdpr_applies",
+        "gdpr_consent": "gdpr_consent_string",
+        "dma": "data_management_agreement",
+        "dma_cps": "dma_consent_purposes",
+        "npa": "non_personalized_ads",
+        "gcd": "google_consent_data",
+        "dl": "page_location",
+        "dr": "document_referrer",
+        "dt": "page_title",
+        "_p": "timestamp_micros",
+        "sid": "session_id"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "consent_event",
+      "customEventHandler": "ccm_events",
+      "description": "Google Consent Collection Module - Collects and processes user consent information for privacy compliance.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-shield-halved brand-icon icon-consent\"></i>",
+        "color": "#34A853",
+        "highlightClass": "universal-highlight-consent"
+      }
+    },
+    "Custom Tracking": {
+      "name": "Custom Tracking",
+      "hosts": [],
+      "paths": ["/track", "/analytics", "/events", "/collect", "/beacon", "/pixel", "/hit"],
+      "paramMap": {
+        "event": "event_name",
+        "data": "event_data",
+        "user": "user_id",
+        "session": "session_id",
+        "page": "page_url",
+        "ref": "referrer",
+        "time": "timestamp",
+        "value": "value"
+      },
+      "pixelIdKey": "id",
+      "eventNameKey": "event",
+      "description": "Custom Tracking Solutions - First-party or third-party analytics implementations.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-gear brand-icon\"></i>",
+        "color": "#6366F1",
+        "highlightClass": "universal-highlight-default"
+      }
+    }
+  },
+  "serverTracking": {
+    "patterns": {
+      "gtm": ["gtm", "sgtm", "server-gtm", "gtm-server"],
+      "analytics": ["analytics", "tracking", "metrics", "data", "stats"],
+      "events": ["events", "event", "collect", "track", "beacon"],
+      "paths": ["/gtm/", "/collect", "/mp/collect", "/g/collect", "/analytics/", "/track", "/events", "/beacon", "/pixel", "/hit"]
+    },
+    "sgtmIndicators": {
+      "hostPatterns": ["gtm", "sgtm", "server-gtm", "gtm-server", "tm."],
+      "pathPatterns": ["/g/collect", "/collect", "/mp/collect", "/analytics/", "/track", "/events"],
+      "excludedPaths": ["/gtag/js", "/gtm/js", "/gtag/config", "/gtag/event", "/ccm/collect"],
+      "ga4Params": ["en", "cid", "sid", "_p", "dl", "dr", "dt"],
+      "consentParams": ["gcs", "dma", "dma_cps", "gdpr", "gdpr_consent"],
+      "gtmIdPrefixes": ["GTM-", "G-", "AW-", "DC-"],
+      "trackingIdPrefixes": ["G-", "GA-", "GTM-", "AW-", "DC-"],
+      "eventParams": ["event", "event_name", "en", "ev", "action", "event_action", "category", "event_category"],
+      "trackingParams": ["track", "tracking", "pixel", "pixel_id", "id", "user_id", "uid", "client_id", "cid"],
+      "sessionParams": ["session", "session_id", "sid", "visit", "visit_id", "s"],
+      "valueParams": ["value", "revenue", "price", "amount", "val", "total"],
+      "ecommerceParams": ["currency", "item_id", "product_id", "sku", "quantity", "product_name", "item_name"],
+      "customParams": ["custom", "param", "data", "properties", "traits", "context"],
+      "timestampParams": ["timestamp", "time", "t", "_p", "ts"],
+      "serverGtmParams": ["gtm", "container_id", "gtm_container", "server_container_url"]
+    }
+  }
+}
