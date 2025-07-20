@@ -1,8 +1,19 @@
 // ===== GLOBAL STATE =====
 let ws, reconnectAttempts = 0, allExpanded = false;
+let currentFontSize = 14; // Default font size in pixels
+let currentHeaderFontSize = 13; // Default header font size in pixels
+let currentButtonFontSize = 9; // Default button font size in pixels
+let userInteracting = false;
+let interactionTimeout = null;
+let consentStatus = {
+    status: 'unknown', // 'unknown', 'accepted', 'declined'
+    timestamp: null,
+    categories: {},
+    buttonText: null
+};
 let settings = {
     showServerCookies: false,
-    showClientCookies: false, 
+    showClientCookies: false,
     showDataLayer: true,
     showInfo: false,
     showJavaScriptEndpoints: false,
@@ -21,6 +32,8 @@ const DOM = {
     showJavaScriptEndpointsToggle: document.getElementById('showJavaScriptEndpointsToggle'),
     prevPageBtn: document.getElementById('prevPageBtn'),
     nextPageBtn: document.getElementById('nextPageBtn'),
+    increaseFontBtn: document.getElementById('increaseFontBtn'),
+    decreaseFontBtn: document.getElementById('decreaseFontBtn'),
     settingsToggle: document.getElementById('settingsToggle'),
     settingsDropdown: document.getElementById('settingsDropdown'),
     panelClose: document.getElementById('panelClose'),
@@ -75,19 +88,19 @@ async function loadConfig() {
             return;
         }
         const config = await response.json();
-        
+
         // Merge UI configuration
         if (config.ui) {
             CONFIG = { ...CONFIG, ...config.ui };
         }
-        
+
         // Generate platforms and UI mappings from platformConfigs
         if (config.platformConfigs) {
             CONFIG.platforms = Object.keys(config.platformConfigs);
             CONFIG.platformIconMap = {};
             CONFIG.platformHighlightClasses = {};
             CONFIG.platformColors = {};
-            
+
             // Generate mappings from platformConfigs
             for (const [platform, platformConfig] of Object.entries(config.platformConfigs)) {
                 if (platformConfig.ui) {
@@ -101,12 +114,12 @@ async function loadConfig() {
                 }
             }
         }
-        
+
         // Update websocket configuration
         if (config.websocket) {
             CONFIG.websocket = { ...CONFIG.websocket, ...config.websocket };
         }
-        
+
         console.log('Configuration loaded successfully');
     } catch (error) {
         console.warn('Error loading configuration:', error);
@@ -146,10 +159,194 @@ function initTheme() {
     applyTheme(theme);
 }
 
+// ===== FONT SIZE MANAGEMENT =====
+function applyFontSize(size) {
+    document.documentElement.style.setProperty('--base-font-size', `${size}px`);
+    currentFontSize = size;
+    try {
+        localStorage.setItem('fontSize', size.toString());
+    } catch (e) {
+        // localStorage not available, ignore
+    }
+}
+
+function applyHeaderFontSize(size) {
+    document.documentElement.style.setProperty('--header-font-size', `${size}px`);
+    currentHeaderFontSize = size;
+    try {
+        localStorage.setItem('headerFontSize', size.toString());
+    } catch (e) {
+        // localStorage not available, ignore
+    }
+}
+
+function applyButtonFontSize(size) {
+    document.documentElement.style.setProperty('--button-font-size', `${size}px`);
+    try {
+        localStorage.setItem('buttonFontSize', size.toString());
+    } catch (e) {
+        // localStorage not available, ignore
+    }
+}
+
+function increaseFontSize() {
+    const newSize = Math.min(currentFontSize + 2, 24); // Max 24px
+    const newHeaderSize = Math.min(currentHeaderFontSize + 1, 20); // Max 20px for header
+    const newButtonSize = Math.min(currentButtonFontSize + 1, 16); // Max 16px for buttons
+    applyFontSize(newSize);
+    applyHeaderFontSize(newHeaderSize);
+    applyButtonFontSize(newButtonSize);
+    currentButtonFontSize = newButtonSize;
+}
+
+function decreaseFontSize() {
+    const newSize = Math.max(currentFontSize - 2, 10); // Min 10px
+    const newHeaderSize = Math.max(currentHeaderFontSize - 1, 8); // Min 8px for header
+    const newButtonSize = Math.max(currentButtonFontSize - 1, 6); // Min 6px for buttons
+    applyFontSize(newSize);
+    applyHeaderFontSize(newHeaderSize);
+    applyButtonFontSize(newButtonSize);
+    currentButtonFontSize = newButtonSize;
+}
+
+function initFontSize() {
+    let fontSize = 14; // default font size
+    let headerFontSize = 13; // default header font size
+    let buttonFontSize = 9; // default button font size
+
+    try {
+        const savedFontSize = localStorage.getItem('fontSize');
+        if (savedFontSize && !isNaN(parseInt(savedFontSize))) {
+            fontSize = parseInt(savedFontSize);
+            fontSize = Math.max(10, Math.min(24, fontSize)); // Clamp between 10-24px
+        }
+
+        const savedHeaderFontSize = localStorage.getItem('headerFontSize');
+        if (savedHeaderFontSize && !isNaN(parseInt(savedHeaderFontSize))) {
+            headerFontSize = parseInt(savedHeaderFontSize);
+            headerFontSize = Math.max(8, Math.min(20, headerFontSize)); // Clamp between 8-20px
+        }
+
+        const savedButtonFontSize = localStorage.getItem('buttonFontSize');
+        if (savedButtonFontSize && !isNaN(parseInt(savedButtonFontSize))) {
+            buttonFontSize = parseInt(savedButtonFontSize);
+            buttonFontSize = Math.max(6, Math.min(16, buttonFontSize)); // Clamp between 6-16px
+        }
+    } catch (e) {
+        // localStorage is not available, use default
+    }
+
+    applyFontSize(fontSize);
+    applyHeaderFontSize(headerFontSize);
+    applyButtonFontSize(buttonFontSize);
+    currentButtonFontSize = buttonFontSize;
+}
+
 // ===== UTILITY FUNCTIONS =====
 function updateStatus(message, type = 'info') {
     DOM.status.textContent = message;
     DOM.status.style.color = CONFIG.statusColors[type];
+}
+
+// ===== CONSENT STATUS MANAGEMENT =====
+function updateConsentStatusHeader() {
+    console.log('🎨 Updating consent status dot, current status:', consentStatus.status);
+
+    const consentDot = document.getElementById('consentIndicator');
+    if (!consentDot) {
+        console.log('❌ Consent indicator dot not found in DOM');
+        return;
+    }
+
+    // Force visibility and ensure it's displayed
+    consentDot.style.display = 'inline-block';
+    consentDot.style.visibility = 'visible';
+
+    // Remove existing classes
+    consentDot.classList.remove('accepted', 'declined', 'unknown');
+
+    switch (consentStatus.status) {
+        case 'declined':
+            console.log('🚫 Setting DECLINED dot styling');
+            consentDot.classList.add('declined');
+            consentDot.title = `Consent Status: DECLINED • ${consentStatus.timestamp || 'Unknown time'}`;
+            break;
+        case 'accepted':
+            console.log('✅ Setting ACCEPTED dot styling');
+            consentDot.classList.add('accepted');
+            consentDot.title = `Consent Status: ACCEPTED • ${consentStatus.timestamp || 'Unknown time'}`;
+            break;
+        default:
+            console.log('❓ Setting UNKNOWN status dot');
+            consentDot.classList.add('unknown');
+            consentDot.title = 'Consent Status: Unknown - No consent decision detected yet';
+            break;
+    }
+
+    console.log('🎨 Dot update complete. Classes:', consentDot.className);
+    console.log('🎨 Dot styles - display:', consentDot.style.display, 'visibility:', consentDot.style.visibility);
+}
+
+function checkConsentInDataLayer(data) {
+    console.log('🔍 Checking consent in DataLayer:', data);
+
+    // Look for consent_update events with all categories denied
+    if (data && typeof data === 'object') {
+        const consentCategories = [
+            'ad_storage', 'analytics_storage', 'ad_personalization',
+            'ad_user_data', 'functionality_storage', 'personalization_storage',
+            'security_storage'
+        ];
+
+        let allDenied = false;
+        let anyConsentFound = false;
+        let deniedCount = 0;
+
+        console.log('🔍 Checking categories:', consentCategories);
+
+        // Check if this is a consent update with categories
+        for (const category of consentCategories) {
+            if (data[category]) {
+                anyConsentFound = true;
+                console.log(`📊 Found category ${category}: ${data[category]}`);
+                if (data[category] === 'denied') {
+                    deniedCount++;
+                } else {
+                    console.log(`✅ Category ${category} is not denied: ${data[category]}`);
+                }
+            }
+        }
+
+        allDenied = anyConsentFound && deniedCount === Object.keys(data).filter(key => consentCategories.includes(key)).length;
+
+        console.log(`📈 Consent analysis: Found ${deniedCount} denied categories out of ${Object.keys(data).filter(key => consentCategories.includes(key)).length} total consent categories`);
+
+        if (anyConsentFound && allDenied) {
+            console.log('🚫 ALL CONSENT DECLINED - Updating header');
+            consentStatus.status = 'declined';
+            consentStatus.timestamp = new Date().toLocaleTimeString();
+            consentStatus.categories = data;
+            updateConsentStatusHeader();
+            return true;
+        } else if (anyConsentFound && !allDenied) {
+            console.log('✅ SOME CONSENT GIVEN - Updating header');
+            console.log('✅ Current consent status before update:', consentStatus.status);
+            // Some consent was given
+            consentStatus.status = 'accepted';
+            consentStatus.timestamp = new Date().toLocaleTimeString();
+            consentStatus.categories = data;
+            console.log('✅ Updated consent status to:', consentStatus.status);
+            updateConsentStatusHeader();
+            return true;
+        } else if (anyConsentFound) {
+            console.log('❓ Consent categories found but status unclear');
+        } else {
+            console.log('❌ No consent categories found in data');
+        }
+    } else {
+        console.log('❌ Invalid data structure for consent check');
+    }
+    return false;
 }
 
 // ===== UNIFIED PLATFORM CONFIGURATION =====
@@ -178,10 +375,10 @@ function getPlatformHighlightClass(platform) {
 // ===== PARAMETER VALIDATION =====
 function checkGA4ParameterLength(paramName, paramValue, platform) {
     if (platform !== 'GA4' || !paramValue) return null;
-    
+
     const limit = CONFIG.ga4Limits[paramName] || CONFIG.ga4Limits.custom_parameter;
     const current = paramValue.length;
-    
+
     if (current > limit) {
         return {
             current,
@@ -204,19 +401,19 @@ function highlightUniversalParameters(paramName, paramValue) {
         'user_id': 'user-id-highlight',
         'client_id': 'client-id-highlight'
     };
-    
+
     const lowerParamName = paramName.toLowerCase();
-    
+
     for (const [key, cssClass] of Object.entries(importantParams)) {
         if (lowerParamName.includes(key.replace('_', '')) || lowerParamName.includes(key)) {
             return `<span class="${cssClass}">${paramValue}</span>`;
         }
     }
-    
+
     if (paramValue.length > 50) {
         return `<span class="long-param-value">${paramValue}</span>`;
     }
-    
+
     return paramValue;
 }
 
@@ -236,7 +433,7 @@ function highlightLongParameters(detailsText, platform) {
                     return `${paramName}: ${paramValue}${warningText}`;
                 }
             }
-            
+
             const highlightedValue = highlightUniversalParameters(paramName, paramValue);
             if (highlightedValue !== paramValue) {
                 return `${paramName}: ${highlightedValue}`;
@@ -253,29 +450,64 @@ function prettyPrintNestedJson(obj, indent = 2) {
     if (typeof obj !== 'object' || obj === null) {
         return String(obj);
     }
-    // Use JSON.stringify for robust, recursive pretty-printing of objects.
-    return JSON.stringify(obj, null, indent);
+
+    // Parse nested JSON strings for better display
+    const parseNestedJson = (value) => {
+        if (typeof value === 'string') {
+            // Try to parse as JSON if it looks like JSON
+            if ((value.startsWith('{') && value.endsWith('}')) ||
+                (value.startsWith('[') && value.endsWith(']'))) {
+                try {
+                    return JSON.parse(value);
+                } catch (e) {
+                    // If parsing fails, return original string
+                    return value;
+                }
+            }
+        } else if (typeof value === 'object' && value !== null) {
+            // Recursively process objects and arrays
+            if (Array.isArray(value)) {
+                return value.map(parseNestedJson);
+            } else {
+                const parsed = {};
+                for (const [key, val] of Object.entries(value)) {
+                    parsed[key] = parseNestedJson(val);
+                }
+                return parsed;
+            }
+        }
+        return value;
+    };
+
+    const processedObj = parseNestedJson(obj);
+    return JSON.stringify(processedObj, null, indent);
+}
+
+function formatMetadataSection(metadata) {
+    let out = '';
+    if (!metadata) return out;
+
+    // Show request URL prominently at the top
+    if (metadata.request_url) {
+        out += `Request URL:\n${metadata.request_url}\n\n`;
+    }
+
+    if (metadata.response_headers) {
+        out += `Response Headers:\n${JSON.stringify(metadata.response_headers, null, 2)}\n`;
+    }
+
+    if (metadata.raw_data) {
+        const rawDataForDisplay = { ...metadata.raw_data };
+        delete rawDataForDisplay._request_path; // Remove redundant key
+        delete rawDataForDisplay._request_host;
+        out += `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
+    }
+
+    return out;
 }
 
 function prettyPrintDetailsRaw(metadata, data = null) {
-    let out = '';
-    if (metadata) {
-        // Show request URL prominently at the top
-        if (metadata.request_url) {
-            out += `Request URL:\n${metadata.request_url}\n\n`;
-        }
-        
-        if (metadata.response_headers) {
-            out += `Response Headers:\n${JSON.stringify(metadata.response_headers, null, 2)}\n`;
-        }
-      
-        if (metadata.raw_data) {
-            const rawDataForDisplay = { ...metadata.raw_data };
-            delete rawDataForDisplay._request_path; // Remove redundant key
-            delete rawDataForDisplay._request_host;
-            out += `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
-        }
-    }
+    let out = formatMetadataSection(metadata);
     if (data) {
         out += `Data:\n${prettyPrintNestedJson(data, 1)}`;
     }
@@ -285,32 +517,35 @@ function prettyPrintDetailsRaw(metadata, data = null) {
 function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
     let out = '';
     const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp'];
-    
+
     if (isDataLayer) {
         out += formatDataLayerDetails(data);
     } else {
+        // Add relevant data fields
         for (const field of relevantFields) {
             if (data[field]) {
                 out += `${field}: ${data[field]}\n`;
             }
         }
-        
+
         if (data.event_type) {
             out += `Event Type: ${data.event_type}\n`;
         }
-        
+
         // Debug: Log all data keys to console to see what's available
         if (window.DEBUG_EVENT_TYPES) {
             console.log('Event data keys:', Object.keys(data));
             console.log('Event type value:', data.event_type);
         }
-        
+
+        // Add extra info (re-enabled for sGTM details)
         if (data.extra_info && Array.isArray(data.extra_info)) {
-            out += `Extra Info:\n${data.extra_info.map(info => `  • ${info}`).join('\n')}\n`;
+            out += `\nExtra Info:\n${data.extra_info.map(info => `  • ${info}`).join('\n')}\n`;
         }
-        
+
+        // Add mapped data (re-enabled for parameter mappings)
         if (data.mapped_data && Object.keys(data.mapped_data).length > 0) {
-            out += `Mapped Data:\n`;
+            out += `\nMapped Data:\n`;
             for (const [key, value] of Object.entries(data.mapped_data)) {
                 out += `  ${key}: ${value}\n`;
             }
@@ -319,7 +554,7 @@ function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
         if (data.debug_info) {
             out += `\nDebug Info:\n${formatDebugInfo(data.debug_info)}`;
         }
-        
+
         // Add JavaScript endpoint information
         if (data.js_info) {
             out += `\nJavaScript Info:\n`;
@@ -330,18 +565,13 @@ function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
             }
         }
     }
-    
-    // Add metadata information if available
-    if (metadata) {
-        if (metadata.request_url) out += `\nRequest URL: ${metadata.request_url}\n`;
-        if (metadata.raw_data) {
-            const rawDataForDisplay = { ...metadata.raw_data };
-            delete rawDataForDisplay._request_path; // Remove redundant key
-            delete rawDataForDisplay._request_host;
-            out += `\nRaw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}`;
-        }
+
+    // Use shared metadata formatting to eliminate duplication
+    const metadataContent = formatMetadataSection(metadata);
+    if (metadataContent) {
+        out += `\n${metadataContent}`;
     }
-    
+
     return out;
 }
 
@@ -382,10 +612,10 @@ function formatDataLayerValue(key, value) {
 function formatDataLayerAsJSON(data) {
     let out = '';
     if (data.event_name) out += `Event: ${data.event_name}\n\n`;
-    
+
     // Print the entire data object as formatted JSON
     out += `DataLayer Data:\n${JSON.stringify(data, null, 2)}`;
-    
+
     return out;
 }
 
@@ -396,25 +626,25 @@ function formatCookieDetails(data, metadata) {
     if (metadata && metadata.request_url) {
         out += `Request URL: ${metadata.request_url}\n`;
     }
-    
+
     if (data.path) out += `Path: ${data.path}\n`;
     if (data.cookie_type) out += `Type: ${data.cookie_type}\n`;
     if (data.cookie_count) out += `Count: ${data.cookie_count}\n`;
-    
+
     if (data.cookies && Array.isArray(data.cookies)) {
         out += `\nCookies:\n`;
         data.cookies.forEach((cookie, index) => {
             out += `  ${index + 1}. ${cookie}\n`;
         });
     }
-    
+
     if (data.full_cookies && Array.isArray(data.full_cookies)) {
         out += `\nFull Cookie Headers:\n`;
         data.full_cookies.forEach((cookie, index) => {
             out += `  ${index + 1}. ${cookie}\n`;
         });
     }
-    
+
     return out;
 }
 
@@ -469,14 +699,14 @@ function formatUrlChangeDetails(data) {
 
 function getMarketingPixelSummary(data, event) {
     const platform = data.platform || 'Unknown';
-    
+
     // Check if we have highlighting info with pre-formatted text
     if (data.highlight_info && data.highlight_info.should_highlight && data.highlight_info.highlight_text) {
         const platformClass = getPlatformHighlightClass(data.platform);
         // Use the pre-formatted highlight text from Python (which already includes platform, event, and pixel_id)
         return `<span class="universal-highlight ${platformClass}">${data.highlight_info.highlight_text}</span>`;
     }
-    
+
     // Fallback to manual formatting
     let pixelId = '';
     if (data.pixel_id) {
@@ -489,6 +719,75 @@ function getMarketingPixelSummary(data, event) {
 
 // ===== MESSAGE HANDLING =====
 const messageHandlers = {
+    'custom_tracking': (logEntry) => {
+        const { event, data } = logEntry;
+        const icon = getPlatformIcon(data.platform);
+        const requestHost = logEntry.metadata?.request_url ? new URL(logEntry.metadata.request_url).host : 'Unknown Host';
+        const summary = `Custom Tracking (Host: ${requestHost})`;
+        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.debug_info);
+        renderMessage(summary, data.platform, icon, true, false, details);
+    },
+
+
+
+    'cookie_banner_detected': (logEntry) => {
+        const { data } = logEntry;
+        const icon = '🍪';
+        const confidence = data.confidence || 0;
+        const reasons = data.reasons || [];
+
+        // Color-code based on confidence
+        let confidenceColor = '#6b7280'; // gray
+        if (confidence >= 80) confidenceColor = '#22c55e'; // green
+        else if (confidence >= 60) confidenceColor = '#f59e0b'; // yellow
+        else if (confidence >= 40) confidenceColor = '#ef4444'; // red
+
+        const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span>`;
+
+        const elementInfo = data.element_info || {};
+        const position = data.position || {};
+        const styling = data.styling || {};
+
+        const details = `Cookie Banner Analysis:
+Confidence: ${confidence}% (${reasons.join(', ')})
+Element: ${elementInfo.tagName || 'Unknown'} ${elementInfo.id ? `#${elementInfo.id}` : ''} ${elementInfo.className ? `.${elementInfo.className}` : ''}
+Position: ${Math.round(position.left || 0)}, ${Math.round(position.top || 0)} (${Math.round(position.width || 0)}×${Math.round(position.height || 0)})
+Styling: ${styling.position || 'static'}, z-index: ${styling.zIndex || 'auto'}
+Text Length: ${elementInfo.textLength || 0} characters
+Text Snippet: "${data.text_snippet || 'No text'}"
+Page URL: ${data.page_url || 'Unknown'}
+Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`;
+
+        renderMessage(summary, 'cookie_banner', icon, true, false, details);
+    },
+
+    'cookie_banner_summary': (logEntry) => {
+        const { data } = logEntry;
+        const icon = '📊';
+        const totalBanners = data.total_banners || 0;
+        const maxConfidence = data.max_confidence || 0;
+
+        let summaryColor = '#6b7280';
+        if (maxConfidence >= 80) summaryColor = '#22c55e';
+        else if (maxConfidence >= 60) summaryColor = '#f59e0b';
+        else if (maxConfidence >= 40) summaryColor = '#ef4444';
+
+        const summary = `<b>Banner Detection Summary</b> - <span style="color: ${summaryColor};">${totalBanners} banner(s) found</span>`;
+        const details = `Detection Summary:
+Total Banners Found: ${totalBanners}
+Highest Confidence: ${maxConfidence}%
+Page URL: ${data.page_url || 'Unknown'}`;
+
+        renderMessage(summary, 'banner_summary', icon, true, false, details);
+    },
+
+    'banner_detector_status': (logEntry) => {
+        const { data } = logEntry;
+        const icon = '🔧';
+        const summary = `<b>Banner Detector</b> - ${data.message || 'Status update'}`;
+        renderMessage(summary, 'detector_status', icon, false, false, '');
+    },
+
     'marketing_pixel_event': (logEntry) => {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
@@ -501,7 +800,7 @@ const messageHandlers = {
         const { event, data, metadata } = logEntry;
         const icon = CONFIG.typeIconMap.error;
         const summary = `Error: ${data.message || event}`;
-        
+
         let details = '';
         // Always show the request URL if available
         if (metadata && metadata.request_url) {
@@ -518,15 +817,87 @@ const messageHandlers = {
 
         renderMessage(summary, 'error', icon, false, false, details);
     },
-    
+
     'datalayer': (logEntry) => {
         const { event, data } = logEntry;
+
+        console.log('📋 Processing DataLayer event:', event, 'with data:', data);
+
+        // Check for consent updates in DataLayer events
+        if (event === 'consent_update') {
+            // Try multiple data structure possibilities
+            let consentData = data.data_layer_data || data || null;
+            console.log('📋 Checking consent data structure:', consentData);
+
+            if (consentData) {
+                checkConsentInDataLayer(consentData);
+            }
+        }
+
+        // Also check any data with consent-related keys regardless of event name
+        const dataToCheck = data.data_layer_data || data;
+        if (dataToCheck && typeof dataToCheck === 'object') {
+            const hasConsentKeys = Object.keys(dataToCheck).some(key =>
+                key.includes('storage') || key.includes('consent') || key.includes('ad_') || key.includes('analytics_')
+            );
+            if (hasConsentKeys) {
+                console.log('📋 Found consent-related keys in any DataLayer event, checking:', dataToCheck);
+                checkConsentInDataLayer(dataToCheck);
+            }
+        }
+
         const icon = CONFIG.typeIconMap.datalayer;
         const summary = `DataLayer <b>${event}</b>`;
         const details = formatDataLayerAsJSON(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
         renderMessage(summary, 'DataLayer', icon, false, false, details);
     },
-    
+
+    'consent': (logEntry) => {
+        const { event, data } = logEntry;
+        const icon = CONFIG.typeIconMap.consent || '🛡️';
+
+        if (event === 'user_consent_declined') {
+            consentStatus.status = 'declined';
+            consentStatus.timestamp = new Date().toLocaleTimeString();
+            consentStatus.categories = data.categories || {};
+            updateConsentStatusHeader();
+
+            const summary = `<span style="color: #dc2626; font-weight: bold;">🚫 USER CONSENT DECLINED</span>`;
+            const details = `Consent Status: DECLINED
+All Categories Denied: ${data.all_categories_denied ? 'Yes' : 'No'}
+Categories: ${Object.keys(data.categories || {}).join(', ')}
+Timestamp: ${consentStatus.timestamp}
+
+Full Data:
+${JSON.stringify(data, null, 2)}`;
+            renderMessage(summary, 'consent', icon, true, false, details);
+
+        } else if (event === 'user_consent_given' || event === 'user_consent_accepted') {
+            consentStatus.status = 'accepted';
+            consentStatus.timestamp = new Date().toLocaleTimeString();
+            consentStatus.buttonText = data.button_text || null;
+            updateConsentStatusHeader();
+
+            const summary = `<span style="color: #15803d; font-weight: bold;">✅ USER CONSENT ${event === 'user_consent_given' ? 'GIVEN' : 'ACCEPTED'}</span>`;
+            const details = `Consent Status: ACCEPTED
+Consent Type: ${data.consent_type || 'Unknown'}
+Button Text: "${data.button_text || 'Unknown'}"
+Granted Categories: ${(data.granted_categories || []).join(', ') || 'None specified'}
+Denied Categories: ${(data.denied_categories || []).join(', ') || 'None specified'}
+Timestamp: ${consentStatus.timestamp}
+
+Full Data:
+${JSON.stringify(data, null, 2)}`;
+            renderMessage(summary, 'consent', icon, true, false, details);
+
+        } else {
+            // Handle other consent events
+            const summary = `Consent <b>${event}</b>`;
+            const details = JSON.stringify(data, null, 2);
+            renderMessage(summary, 'consent', icon, false, false, details);
+        }
+    },
+
     'cookie': (logEntry) => {
         const { data } = logEntry;
         const icon = CONFIG.typeIconMap.cookie;
@@ -535,21 +906,26 @@ const messageHandlers = {
         const cookieType = data.cookie_type === 'tracking' ? 'ServerCookie' : 'ClientCookie';
         renderMessage(summary, cookieType, icon, false, false, details);
     },
-    
+
     'url_change': (logEntry) => {
         const { event, data } = logEntry;
-        const icon = CONFIG.typeIconMap.url_change;
-        
-        // Create prominent summary with new URL (no extra link icon)
+        const icon = '🌐';  // Use larger, more prominent icon
+
+        // Create prominent summary with enhanced formatting
         const newUrl = data.to_url || data.url || 'Unknown URL';
-        const summary = `<b>Page Navigation</b> → ${newUrl}`;
-        
+        const domain = new URL(newUrl).hostname;
+        const path = new URL(newUrl).pathname + new URL(newUrl).search;
+
+        // Enhanced formatting with domain highlighting
+        const summary = `<span style="font-size: 1.1em; font-weight: 800;">🚀 PAGE NAVIGATION</span><br>
+                        <span style="color: #3b82f6; font-weight: 600;">${domain}</span><span style="color: #6b7280;">${path}</span>`;
+
         const details = formatUrlChangeDetails(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
-        
-        // Keep consistent type naming with Python side
+
+        // URL changes appear in chronological order but with special separator styling
         renderMessage(summary, 'url_change', icon, true, true, details, 'url-change-separator');
     },
-    
+
     'request_status_update': (logEntry) => {
         updateRequestStatus(logEntry.data);
     }
@@ -557,10 +933,19 @@ const messageHandlers = {
 
 function handleStructuredLog(logEntry) {
     const { type, event, data } = logEntry;
-    
+
     const handler = messageHandlers[type];
     if (handler) {
-        handler(logEntry);
+        try {
+            handler(logEntry);
+        } catch (error) {
+            console.error(`Error handling message type '${type}':`, error);
+            // Fallback to generic handler
+            const icon = '❌';
+            const summary = `Error processing ${type}`;
+            const details = `Error: ${error.message}\n\nOriginal data:\n${JSON.stringify(logEntry, null, 2)}`;
+            renderMessage(summary, 'error', icon, false, false, details);
+        }
     } else {
         // Generic handler for unknown types
         const icon = CONFIG.typeIconMap[type] || CONFIG.typeIconMap.info;
@@ -574,29 +959,49 @@ function updateRequestStatus(data) {
     const messages = DOM.content.querySelectorAll('.message');
     let targetMessage = null;
 
-    // Look for the most recent marketing pixel event from the same platform
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        const messageType = msg.getAttribute('data-type');
-        const messageText = msg.querySelector('.message-text')?.textContent || '';
+    // NEW: Hash-based matching for perfect accuracy
+    if (data.request_hash) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            const detailsEl = msg.querySelector('.message-details');
+            if (!detailsEl) continue;
 
-        // Match marketing pixel events OR error messages from the same platform
-        const isExactPlatformMatch = messageType.toLowerCase() === data.platform.toLowerCase();
-        const isErrorFromPlatform = messageType.toLowerCase() === 'error' && 
-                                   messageText.toLowerCase().includes(data.platform.toLowerCase());
-        const isNotStatusMessage = !messageText.includes('Request') && !messageText.includes('✅') && !messageText.includes('❌');
-        const isRecentMessage = true; // We're looking from newest to oldest
-        
-        if ((isExactPlatformMatch || isErrorFromPlatform) && isNotStatusMessage && isRecentMessage) {
-            targetMessage = msg;
-            break;
+            // Extract hash from message details (it's stored in request_hash field)
+            const messageHash = detailsEl.textContent.match(/request_hash[":]\s*([a-f0-9]{12})/i)?.[1];
+            const isNotStatusMessage = !msg.querySelector('.message-text')?.textContent.includes('✅') &&
+                !msg.querySelector('.message-text')?.textContent.includes('❌');
+
+            if (messageHash === data.request_hash && isNotStatusMessage) {
+                targetMessage = msg;
+                break; // Perfect hash match - stop searching
+            }
         }
     }
-    
+
+    // FALLBACK: Platform-based matching if hash not found or no hash available
+    if (!targetMessage) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            const messageType = msg.getAttribute('data-type');
+            const messageText = msg.querySelector('.message-text')?.textContent || '';
+
+            // Match marketing pixel events OR error messages from the same platform
+            const isExactPlatformMatch = messageType.toLowerCase() === data.platform.toLowerCase();
+            const isErrorFromPlatform = messageType.toLowerCase() === 'error' &&
+                messageText.toLowerCase().includes(data.platform.toLowerCase());
+            const isNotStatusMessage = !messageText.includes('Request') && !messageText.includes('✅') && !messageText.includes('❌');
+
+            if ((isExactPlatformMatch || isErrorFromPlatform) && isNotStatusMessage) {
+                targetMessage = msg;
+                break; // Platform fallback match
+            }
+        }
+    }
+
     if (targetMessage) {
         // Show status icon when request failed OR add response info for successful JavaScript endpoints
         const hasResponseInfo = data.response_type || data.response_size;
-        
+
         if (!data.success) {
             const statusIcon = '❌';
             const messageTextEl = targetMessage.querySelector('.message-text');
@@ -604,22 +1009,22 @@ function updateRequestStatus(data) {
                 // Only add status if it doesn't already have one
                 if (!messageTextEl.textContent.includes('✅') && !messageTextEl.textContent.includes('❌')) {
                     messageTextEl.innerHTML += ` ${statusIcon}`;
-                    
+
                     // Add detailed error info to details
                     const detailsEl = targetMessage.querySelector('.message-details');
                     if (detailsEl) {
                         let statusInfo = `\n\n--- Request Failed ---\nStatus: ${data.status_code || 'Unknown'}`;
                         if (data.method) statusInfo += `\nMethod: ${data.method}`;
-                        
+
                         // Ensure the complete request URL is displayed
                         const requestUrl = data.request_url || data.url;
                         if (requestUrl) {
                             statusInfo += `\nRequest URL:\n${requestUrl}`;
                         }
-                        
+
                         if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
                         if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
-                        
+
                         // Add response information (JavaScript detection, size, etc.)
                         if (data.response_type) {
                             statusInfo += `\nResponse Type: ${data.response_type}`;
@@ -627,10 +1032,10 @@ function updateRequestStatus(data) {
                         if (data.response_size) {
                             statusInfo += `\nResponse Size: ${data.response_size}`;
                         }
-                        
+
                         // Debug: log the data to see what we're getting
                         console.log('Request status data:', data);
-                        
+
                         detailsEl.textContent += statusInfo;
                     }
                 }
@@ -647,7 +1052,7 @@ function updateRequestStatus(data) {
                     responseInfo += `\nResponse Size: ${data.response_size}`;
                 }
                 responseInfo += `\nStatus: ${data.status_code} (Success)`;
-                
+
                 detailsEl.textContent += responseInfo;
             }
         }
@@ -660,43 +1065,39 @@ function updateRequestStatus(data) {
 function handleLegacyMessage(message, type = 'info') {
     const icon = CONFIG.typeIconMap[type] || CONFIG.typeIconMap.info;
     const messageType = type.charAt(0).toUpperCase() + type.slice(1);
-    
+
     if (message.includes('Connected to')) {
         renderMessage(message, messageType, icon, false, false, '');
         return;
     }
-    
+
     let details = '';
     if (message.includes(' | ')) {
         const parts = message.split(' | ');
         message = parts[0];
         details = parts.slice(1).join('\n');
     }
-    
+
     const detailsText = highlightLongParameters(details, messageType || 'Unknown');
-    
-    if (detailsText.includes('<b>') || detailsText.includes('<span class="param-')) {
-        renderMessage(message, messageType, icon, false, false, detailsText);
-    } else {
-        renderMessage(message, messageType, icon, false, false, detailsText);
-    }
+    renderMessage(message, messageType, icon, false, false, detailsText);
+
 }
 
 function renderMessage(message, messageType, icon, isBold, isNewPage, details, extraClasses = '') {
     const msg = document.createElement('div');
     msg.className = `message ${extraClasses}`;
     msg.setAttribute('data-type', messageType);
-    
+
     // Create timestamp with milliseconds
     const now = new Date();
     const timestampWithMillis = now.toLocaleTimeString() + '.' + now.getMilliseconds().toString().padStart(3, '0');
-    
+
     const weightClass = isBold ? 'font-weight: 600;' : '';
     const pageClass = isNewPage ? 'page-separator' : '';
-    
+
     // Add timestamp to details
     const detailsWithTimestamp = details ? `Timestamp: ${timestampWithMillis}\n\n${details}` : `Timestamp: ${timestampWithMillis}`;
-    
+
     msg.innerHTML = `
         <div class="message-content">
             <div class="message-icon">${icon}</div>
@@ -704,7 +1105,7 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
         </div>
         <div class="message-details" style="display: none;">${detailsWithTimestamp}</div>
     `;
-    
+
     if (pageClass) msg.classList.add(pageClass);
     msg.classList.add('expandable');
     attachExpandHandler(msg);
@@ -721,7 +1122,59 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
     msg.style.display = shouldShow ? 'block' : 'none';
 
     DOM.content.appendChild(msg);
-    if (shouldShow) {
+    if (shouldShow && !userInteracting) {
+        msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+function renderMessageWithPriority(message, messageType, icon, isBold, isNewPage, details, extraClasses = '', priority = 'normal') {
+    const msg = document.createElement('div');
+    msg.className = `message ${extraClasses}`;
+    msg.setAttribute('data-type', messageType);
+
+    // Create timestamp with milliseconds
+    const now = new Date();
+    const timestampWithMillis = now.toLocaleTimeString() + '.' + now.getMilliseconds().toString().padStart(3, '0');
+
+    const weightClass = isBold ? 'font-weight: 600;' : '';
+    const pageClass = isNewPage ? 'page-separator' : '';
+
+    // Add timestamp to details
+    const detailsWithTimestamp = details ? `Timestamp: ${timestampWithMillis}\n\n${details}` : `Timestamp: ${timestampWithMillis}`;
+
+    msg.innerHTML = `
+        <div class="message-content">
+            <div class="message-icon">${icon}</div>
+            <div class="message-text" style="${weightClass}">${message}</div>
+        </div>
+        <div class="message-details" style="display: none;">${detailsWithTimestamp}</div>
+    `;
+
+    if (pageClass) msg.classList.add(pageClass);
+    msg.classList.add('expandable');
+    attachExpandHandler(msg);
+
+    // Apply visibility based on current filter and settings
+    const filterText = document.getElementById('filterInput')?.value.toLowerCase() || '';
+    const messageText = (message + ' ' + details).toLowerCase();
+
+    const isUrlChange = messageType === 'url_change' || messageType === 'URLChange';
+    const typeVisible = checkMessageVisibility(messageType);
+    const textMatch = !filterText || messageText.includes(filterText);
+
+    const shouldShow = isUrlChange || (typeVisible && textMatch);
+    msg.style.display = shouldShow ? 'block' : 'none';
+
+    // Priority-based insertion
+    if (priority === 'top') {
+        // For URL changes, we want chronological order but as section headers
+        // Insert URL changes at the bottom, but they act as section separators
+        DOM.content.appendChild(msg);
+    } else {
+        DOM.content.appendChild(msg);
+    }
+
+    if (shouldShow && !userInteracting) {
         msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 }
@@ -759,7 +1212,7 @@ function findCurrentPage() {
     const containerTop = DOM.content.scrollTop;
     const containerHeight = DOM.content.clientHeight;
     const viewportCenter = containerTop + containerHeight / 2;
-    
+
     for (let i = separators.length - 1; i >= 0; i--) {
         if (separators[i].offsetTop <= viewportCenter) {
             return i;
@@ -884,10 +1337,10 @@ function checkMessageVisibility(messageType, messageText = '') {
 // ===== WEBSOCKET CONNECTION =====
 function connect() {
     if (ws) return;
-    
+
     const wsUrl = `ws://${CONFIG.websocket.host}:${CONFIG.websocket.port}`;
     ws = new WebSocket(wsUrl);
-    
+
     const connectionTimeout = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) {
             updateStatus('Connection timeout', 'error');
@@ -916,7 +1369,7 @@ function connect() {
     ws.onclose = () => {
         ws = null;
         updateStatus('Disconnected', 'error');
-        
+
         if (reconnectAttempts < CONFIG.websocket.maxReconnectAttempts) {
             reconnectAttempts++;
             updateStatus(`Reconnecting... (${reconnectAttempts}/${CONFIG.websocket.maxReconnectAttempts})`, 'warning');
@@ -934,15 +1387,37 @@ function connect() {
 function addMessage(message, type = 'info') {
     const emptyState = DOM.content.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
-    
+
+    // Debug: Log all incoming messages to see if we're missing consent events
+    if (typeof message === 'string' && (message.includes('consent') || message.includes('storage'))) {
+        console.log('🔍 Consent-related message detected:', message);
+    }
+
     if (message.startsWith('[STRUCTURED] ')) {
         try {
             const logEntry = JSON.parse(message.substring(13));
+            console.log('📨 Structured log entry:', logEntry);
+
             if (logEntry.type && logEntry.event && logEntry.data) {
+                // Check for consent_update events specifically
+                if (logEntry.type === 'datalayer' && logEntry.event === 'consent_update') {
+                    console.log('🎯 Found consent_update event, processing...');
+                    console.log('🎯 Raw data structure:', logEntry.data);
+                    const consentData = logEntry.data.data_layer_data || logEntry.data;
+                    console.log('🎯 Extracted consent data:', consentData);
+                    checkConsentInDataLayer(consentData);
+                }
+
+                // Also check any consent-type events
+                if (logEntry.type === 'consent') {
+                    console.log('🎯 Found consent event type, processing...');
+                }
+
                 handleStructuredLog(logEntry);
                 return;
             }
         } catch (e) {
+            console.error('❌ Error parsing structured log:', e);
             // Fall through to legacy handling
         }
     }
@@ -953,7 +1428,11 @@ function addMessage(message, type = 'info') {
 function initializeEventListeners() {
     // Theme toggle
     DOM.themeToggle?.addEventListener('click', toggleTheme);
-    
+
+    // Font size controls
+    DOM.increaseFontBtn?.addEventListener('click', increaseFontSize);
+    DOM.decreaseFontBtn?.addEventListener('click', decreaseFontSize);
+
     // Details toggle
     DOM.toggleDetailsBtn?.addEventListener('click', () => {
         allExpanded = !allExpanded;
@@ -962,7 +1441,7 @@ function initializeEventListeners() {
         });
         DOM.toggleDetailsBtn.textContent = allExpanded ? 'Collapse All' : 'Expand All';
     });
-    
+
     // Clear output
     document.getElementById('clearOutputBtn')?.addEventListener('click', () => {
         DOM.content.innerHTML = `<div class="empty-state">
@@ -970,8 +1449,10 @@ function initializeEventListeners() {
             <div>Waiting for GA4 and marketing pixel events...</div>
             <div class="empty-state-description">Events from GA4, Facebook, TikTok, Snapchat, Pinterest, LinkedIn, Twitter/X, Microsoft, Amazon, Criteo, Reddit, Quora, Outbrain, Taboola, sGTM, Adobe Analytics, Segment, Mixpanel, URL changes, and Custom Tracking will appear here</div>
         </div>`;
+        // Recreate consent header after clearing
+        updateConsentStatusHeader();
     });
-    
+
     // Settings toggles with unified handlers
     const settingsToggles = [
         { element: DOM.showServerCookiesToggle, setting: 'showServerCookies' },
@@ -998,45 +1479,45 @@ function initializeEventListeners() {
             });
         }
     });
-    
+
     // Navigation
     DOM.prevPageBtn?.addEventListener('click', () => {
         const currentPage = findCurrentPage();
         if (currentPage > 0) scrollToPage(currentPage - 1);
     });
-    
+
     DOM.nextPageBtn?.addEventListener('click', () => {
         const currentPage = findCurrentPage();
         const separators = getVisiblePageSeparators();
         if (currentPage < separators.length - 1) scrollToPage(currentPage + 1);
     });
-    
+
     DOM.content?.addEventListener('scroll', updateNavigationButtons);
-    
+
     // Settings panel
     DOM.settingsToggle?.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleSettings();
     });
-    
+
     DOM.panelClose?.addEventListener('click', closeSettings);
-    
+
     DOM.settingsDropdown?.addEventListener('click', (e) => {
         e.stopPropagation();
     });
-    
+
     // Global click handler for closing settings
     document.addEventListener('click', (e) => {
         if (!DOM.settingsDropdown.contains(e.target) && !DOM.settingsToggle.contains(e.target)) {
             closeSettings();
         }
     });
-    
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeSettings();
     });
-    
+
     // Settings buttons with unified platform operations
     document.getElementById('selectAllBtn')?.addEventListener('click', () => {
         forEachPlatformCheckbox((platform, checkbox) => {
@@ -1048,7 +1529,7 @@ function initializeEventListeners() {
         });
         applyFilter();
     });
-    
+
     document.getElementById('selectNoneBtn')?.addEventListener('click', () => {
         forEachPlatformCheckbox((platform, checkbox) => {
             if (checkbox) {
@@ -1059,24 +1540,63 @@ function initializeEventListeners() {
         });
         applyFilter();
     });
-    
+
     document.getElementById('applySettingsBtn')?.addEventListener('click', () => {
         applyFilter();
         closeSettings();
     });
-    
+
     // Filter input
     document.getElementById('filterInput')?.addEventListener('input', applyFilter);
+}
+
+// ===== USER INTERACTION TRACKING =====
+function setUserInteracting() {
+    userInteracting = true;
+    if (interactionTimeout) {
+        clearTimeout(interactionTimeout);
+    }
+    // Resume auto-scrolling after 3 seconds of inactivity
+    interactionTimeout = setTimeout(() => {
+        userInteracting = false;
+    }, 3000);
+}
+
+function setupInteractionTracking() {
+    // Track clicks anywhere in the content area
+    DOM.content?.addEventListener('click', setUserInteracting);
+
+    // Track scrolling in the content area
+    DOM.content?.addEventListener('scroll', setUserInteracting);
+
+    // Track mouse movements over interactive elements
+    document.addEventListener('click', (e) => {
+        // Only track clicks on interactive elements
+        if (e.target.closest('button, input, .message.expandable, .settings-dropdown')) {
+            setUserInteracting();
+        }
+    });
+
+    // Track keyboard interactions
+    document.addEventListener('keydown', (e) => {
+        // Track navigation keys and interactive keys
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', 'Tab', 'Enter', 'Space'].includes(e.key)) {
+            setUserInteracting();
+        }
+    });
 }
 
 // ===== INITIALIZATION =====
 async function init() {
     await loadConfig();
     initTheme();
+    initFontSize();
     initializeSettings();
     initializeEventListeners();
+    setupInteractionTracking(); // Add interaction tracking
     updateNavigationButtons();
     applyFilter(); // Apply default filter settings
+    updateConsentStatusHeader(); // Initialize consent status header
     connect();
 }
 

@@ -193,7 +193,55 @@ def unified_output_handler():
                         print(f"*** URL CHANGE ***", flush=True)
                         print(f"URL: {data.get('url', '')}", flush=True)
                     elif log_type == 'consent':
-                        print(f"Consent: {event}", flush=True)
+                        if event == 'user_consent_declined':
+                            print(f"🚫 CONSENT DECLINED - User rejected all tracking", flush=True)
+                            declined_cats = data.get('declined_categories', [])
+                            if declined_cats:
+                                print(f"   Denied: {', '.join(declined_cats)}", flush=True)
+                        elif event == 'user_consent_given':
+                            print(f"✅ CONSENT ACCEPTED - User granted tracking permissions", flush=True)
+                            granted_cats = data.get('granted_categories', [])
+                            denied_cats = data.get('denied_categories', [])
+                            if granted_cats:
+                                print(f"   Granted: {', '.join(granted_cats)}", flush=True)
+                            if denied_cats:
+                                print(f"   Denied: {', '.join(denied_cats)}", flush=True)
+                        elif event.startswith('consent_'):
+                            consent_action = event.replace('consent_', '').replace('_', ' ').title()
+                            print(f"✅ CONSENT: {consent_action}", flush=True)
+                        else:
+                            print(f"🔒 Consent: {event}", flush=True)
+                            if data.get('consent_status'):
+                                print(f"   Status: {data.get('consent_status')}", flush=True)
+                    elif log_type == 'cookie':
+                        cookie_name = data.get('cookie_name', '')
+                        action = data.get('action', '')
+                        is_marketing = data.get('is_marketing_cookie', False)
+                        banner_visible = data.get('banner_visible', False)
+                        
+                        marker = "🔴" if (is_marketing and banner_visible) else "🟡" if is_marketing else "🔵"
+                        risk_text = " [VIOLATION RISK]" if (is_marketing and banner_visible) else " [MARKETING]" if is_marketing else ""
+                        
+                        print(f"{marker} Cookie {action}: {cookie_name}{risk_text}", flush=True)
+                    elif log_type == 'cookie_banner':
+                        if event == 'banner_detected':
+                            print(f"🍪 COOKIE BANNER DETECTED", flush=True)
+                            print(f"   Method: {data.get('detection_method', 'unknown')}", flush=True)
+                            print(f"   Element: {data.get('banner_element', {}).get('tag', 'unknown')} (id={data.get('banner_element', {}).get('id', 'none')})", flush=True)
+                            print(f"   Preview: {data.get('text_preview', '')[:100]}{'...' if len(data.get('text_preview', '')) > 100 else ''}", flush=True)
+                        elif event == 'banner_buttons':
+                            button_texts = [btn.get('text', '').strip() for btn in data.get('buttons', []) if btn.get('text', '').strip()]
+                            if button_texts:
+                                print(f"🍪 Cookie Banner Buttons: {', '.join(button_texts[:3])}", flush=True)
+                        elif event == 'banner_hidden':
+                            print(f"🍪 Cookie banner hidden ({data.get('reason', 'unknown')})", flush=True)
+                    elif log_type == 'violation':
+                        if event == 'marketing_cookie_while_banner_visible':
+                            print(f"⚠️  🚨 GDPR VIOLATION WARNING 🚨", flush=True)
+                            print(f"   Marketing cookie '{data.get('cookie_name', 'unknown')}' set while banner visible!", flush=True)
+                            print(f"   Action: {data.get('action', 'unknown')}", flush=True)
+                            print(f"   Severity: {data.get('severity', 'unknown')}", flush=True)
+                            print(f"   Risk: {data.get('compliance_risk', 'unknown')}", flush=True)
                 except (json.JSONDecodeError, KeyError):
                     pass  # Skip malformed structured logs
             else:
@@ -413,6 +461,7 @@ def run_browser_with_proxy():
             accept_downloads=True,
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
+        
         site_page = site_context.new_page()
         
         # Hide automation signatures via JavaScript
@@ -486,54 +535,9 @@ def run_browser_with_proxy():
         # Also try to intercept downloads via context
         site_context.on("page", lambda page: page.on("download", handle_download))
 
-        # URL change detection for the site window
-        def handle_framenavigated(frame):
-            global last_logged_url
-            if frame == site_page.main_frame:
-                current_url = frame.url
-                if current_url != last_logged_url:
-                    # Get additional details for a richer log
-                    try:
-                        referrer = site_page.evaluate('document.referrer')
-                    except Exception:
-                        referrer = None
-
-                    try:
-                        title = site_page.title()
-                    except Exception:
-                        title = None
-                    
-                    try:
-                        description_element = site_page.query_selector('meta[name="description"]')
-                        description = description_element.get_attribute('content') if description_element else None
-                    except Exception:
-                        description = None
-
-                    data = {
-                        "to_url": current_url,
-                        "from_url": last_logged_url,
-                        "url": current_url,  # Keep for backward compatibility
-                        "previous_url": last_logged_url, # Keep for backward compatibility
-                        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "referrer": referrer,
-                        "title": title,
-                        "description": description,
-                        "frame_id": frame.name or "main_frame",
-                        "timestamp": time.time()
-                    }
-                    
-                    structured_log = create_structured_log(
-                        "url_change", "page_navigation",
-                        data,
-                        {"source": "playwright"}
-                    )
-                    output_queue.put(structured_log)
-                    last_logged_url = current_url
-
-        site_page.on("framenavigated", handle_framenavigated)
 
         if ENABLE_DATALAYER_LOGGING:
-            # DataLayer and Cookie monitoring script (inject into site window)
+            # DataLayer, Cookie and Cookie Banner monitoring script (inject into site window)
             site_page.add_init_script("""
                 if (window.self !== window.top || window.dataLayerMonitoringInjected) return;
                 window.dataLayerMonitoringInjected = true;
@@ -607,9 +611,107 @@ def run_browser_with_proxy():
                     }
                 }
 
+                function isBannerStillVisible() {
+                    if (!cookieBannerElement) return false;
+                    
+                    try {
+                        // Check if element is still in DOM and visible
+                        if (!document.contains(cookieBannerElement)) {
+                            cookieBannerCurrentlyVisible = false;
+                            return false;
+                        }
+                        
+                        const rect = cookieBannerElement.getBoundingClientRect();
+                        const isVisible = cookieBannerElement.offsetWidth > 0 && 
+                                         cookieBannerElement.offsetHeight > 0 &&
+                                         rect.width > 0 && rect.height > 0;
+                        
+                        if (!isVisible && cookieBannerCurrentlyVisible) {
+                            cookieBannerCurrentlyVisible = false;
+                            console.log('[COOKIE_BANNER_HIDDEN]', JSON.stringify({
+                                timestamp: new Date().toISOString(),
+                                url: window.location.href,
+                                reason: 'element_not_visible'
+                            }));
+                        }
+                        
+                        return isVisible;
+                    } catch (e) {
+                        cookieBannerCurrentlyVisible = false;
+                        return false;
+                    }
+                }
+
+                function isMarketingCookie(cookieName, cookieValue) {
+                    const name = cookieName.toLowerCase();
+                    const value = (cookieValue || '').toLowerCase();
+                    
+                    // Common marketing/tracking cookie patterns
+                    const marketingPatterns = [
+                        // Google Analytics & Google Ads
+                        /^_ga/, /^_gid/, /^_gat/, /^_gcl/, /^_gac/, /^__utma/, /^__utmb/, /^__utmc/, /^__utmz/, /^__utmv/,
+                        /^ads/, /^doubleclick/, /^googleads/, /^google_ads/, /^gads/,
+                        
+                        // Facebook
+                        /^_fb/, /^fbp/, /^fbc/, /^facebook/, /^fr/,
+                        
+                        // Other tracking platforms
+                        /^_tt/, /^tiktok/, /^bytedance/, // TikTok
+                        /^_pin/, /^pinterest/, /^_pinterest/, // Pinterest
+                        /^_li/, /^linkedin/, /^lidc/, /^lang/, // LinkedIn
+                        /^twitter/, /^_twitter/, /^personalization_id/, // Twitter/X
+                        /^_hjid/, /^_hjFirstSeen/, /^_hjIncludedInSessionSample/, // Hotjar
+                        /^_clck/, /^_clsk/, /^clarity/, // Microsoft Clarity
+                        /^amplitude/, /^_amplitude/, // Amplitude
+                        /^mixpanel/, /^mp_/, // Mixpanel
+                        /^segment/, /^ajs_/, // Segment
+                        /^pardot/, /^visitor_id/, // Pardot
+                        /^marketo/, /^_mkto/, // Marketo
+                        /^hubspot/, /^__hs/, /^hubspotapi/, // HubSpot
+                        /^salesforce/, /^sfdc/, // Salesforce
+                        /^adnxs/, /^anj/, /^uuid2/, // AppNexus
+                        /^criteo/, /^cto/, // Criteo
+                        /^outbrain/, /^obuid/, // Outbrain
+                        /^taboola/, /^t_gid/, // Taboola
+                        /^_vwo/, /^vwo/, // VWO
+                        /^optimizely/, /^optly/, // Optimizely
+                        /^gtm/, /^google.*tag.*manager/, // Google Tag Manager
+                        
+                        // Generic patterns
+                        /track/, /analytics/, /marketing/, /advertisement/, /campaign/,
+                        /pixel/, /beacon/, /conversion/, /affiliate/, /partner/,
+                        /retarget/, /audience/, /segment/, /cohort/
+                    ];
+                    
+                    return marketingPatterns.some(pattern => pattern.test(name)) ||
+                           (value && (/track|analytics|marketing|ads|pixel/.test(value)));
+                }
+
                 function addCookieEvent(action, name, newValue, oldValue) {
                     const timestamp = new Date().toLocaleTimeString();
                     const domain = window.location.hostname;
+                    
+                    // Check for marketing cookie violation
+                    if (action === 'created' || action === 'modified') {
+                        const isBannerVisible = isBannerStillVisible();
+                        const isMarketing = isMarketingCookie(name, newValue);
+                        
+                        if (isBannerVisible && isMarketing) {
+                            console.log('[MARKETING_COOKIE_VIOLATION]', JSON.stringify({
+                                timestamp: new Date().toISOString(),
+                                violation_type: 'marketing_cookie_while_banner_visible',
+                                cookie_name: name,
+                                cookie_value: newValue ? (newValue.length > 50 ? newValue.substring(0, 50) + '...' : newValue) : null,
+                                action: action,
+                                domain: domain,
+                                url: window.location.href,
+                                banner_visible: true,
+                                severity: 'HIGH',
+                                compliance_risk: 'GDPR_VIOLATION_RISK',
+                                message: `Marketing cookie '${name}' was ${action} while cookie banner is still visible - potential GDPR violation`
+                            }));
+                        }
+                    }
                     
                     console.log('[COOKIE_EVENT]', JSON.stringify({
                         timestamp: timestamp,
@@ -621,7 +723,9 @@ def run_browser_with_proxy():
                         path: window.location.pathname,
                         host: window.location.hostname,
                         cookie_type: 'client_side',
-                        url: window.location.href
+                        url: window.location.href,
+                        is_marketing_cookie: isMarketingCookie(name, newValue),
+                        banner_visible: isBannerStillVisible()
                     }));
                 }
 
@@ -682,6 +786,225 @@ def run_browser_with_proxy():
                 lastCookieSnapshot = getCookieSnapshot();
                 setupCookieObserver();
 
+                // Cookie Banner Detection
+                let cookieBannerDetected = false;
+                let cookieBannerCurrentlyVisible = false;
+                let cookieBannerObserver = null;
+                let cookieBannerElement = null;
+
+                function detectCookieBanner() {
+                    if (cookieBannerDetected) return;
+
+                    // Common cookie banner selectors
+                    const cookieBannerSelectors = [
+                        // Common IDs and classes
+                        '[id*="cookie" i]', '[class*="cookie" i]',
+                        '[id*="consent" i]', '[class*="consent" i]',
+                        '[id*="privacy" i]', '[class*="privacy" i]',
+                        '[id*="gdpr" i]', '[class*="gdpr" i]',
+                        '[id*="banner" i]', '[class*="banner" i]',
+                        
+                        // Popular cookie banner libraries
+                        '.cc-window', '.cc-banner', '.cc-compliance',
+                        '#cookieConsent', '#cookie-consent', '#CookieConsent',
+                        '.cookie-notice', '.cookie-banner', '.cookie-bar',
+                        '.privacy-notice', '.privacy-banner',
+                        '.consent-banner', '.consent-notice',
+                        '.gdpr-banner', '.gdpr-notice',
+                        
+                        // Onetrust
+                        '#onetrust-banner-sdk', '.onetrust-pc-sdk',
+                        '.ot-sdk-cookie-policy', '.optanon-category',
+                        
+                        // Cookiebot
+                        '#CybotCookiebotDialog', '.CybotCookiebotDialog',
+                        
+                        // Borlabs Cookie
+                        '#BorlabsCookieBox', '.cookie-preference',
+                        
+                        // TrustArc
+                        '#truste-consent-track', '.truste-banner',
+                        
+                        // Quantcast
+                        '.qc-cmp-ui', '.qc-cmp-banner',
+                        
+                        // Generic overlay patterns
+                        '[role="dialog"][aria-label*="cookie" i]',
+                        '[role="banner"][aria-label*="cookie" i]',
+                        '.modal[class*="cookie" i]',
+                        '.popup[class*="cookie" i]',
+                        '.overlay[class*="cookie" i]'
+                    ];
+
+                    // Text-based detection for more generic banners
+                    const cookieTextPatterns = [
+                        /cookies?/i, /privacy/i, /consent/i, /gdpr/i,
+                        /accept.*cookies?/i, /cookie.*policy/i,
+                        /we use cookies/i, /this website uses/i,
+                        /personalized ads/i, /tracking/i
+                    ];
+
+                    let foundBanner = null;
+                    let detectionMethod = '';
+
+                    // Method 1: Check for elements with cookie-related selectors
+                    for (const selector of cookieBannerSelectors) {
+                        try {
+                            const elements = document.querySelectorAll(selector);
+                            for (const element of elements) {
+                                if (element.offsetWidth > 0 && element.offsetHeight > 0) {
+                                    // Element is visible
+                                    const rect = element.getBoundingClientRect();
+                                    if (rect.width > 200 && rect.height > 50) { // Reasonable banner size
+                                        foundBanner = element;
+                                        detectionMethod = `selector: ${selector}`;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (foundBanner) break;
+                        } catch (e) {
+                            // Skip invalid selectors
+                        }
+                    }
+
+                    // Method 2: Text-based detection for elements with cookie-related content
+                    if (!foundBanner) {
+                        const allElements = document.querySelectorAll('div, section, aside, header, footer, nav, main');
+                        for (const element of allElements) {
+                            if (element.offsetWidth > 0 && element.offsetHeight > 0) {
+                                const text = element.textContent || '';
+                                const rect = element.getBoundingClientRect();
+                                
+                                // Check if element contains cookie-related text and has reasonable size
+                                if (text.length > 10 && rect.width > 200 && rect.height > 50) {
+                                    for (const pattern of cookieTextPatterns) {
+                                        if (pattern.test(text)) {
+                                            // Additional checks to avoid false positives
+                                            if (text.length < 2000 && // Not too long (likely not main content)
+                                                (rect.top < 100 || rect.bottom > window.innerHeight - 100 || // Top or bottom positioned
+                                                 element.style.position === 'fixed' || 
+                                                 element.style.position === 'absolute' ||
+                                                 getComputedStyle(element).position === 'fixed' ||
+                                                 getComputedStyle(element).position === 'absolute')) {
+                                                foundBanner = element;
+                                                detectionMethod = `text pattern: ${pattern.toString()}`;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (foundBanner) break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (foundBanner && !cookieBannerDetected) {
+                        cookieBannerDetected = true;
+                        cookieBannerElement = foundBanner;
+                        cookieBannerCurrentlyVisible = true;
+                        
+                        const bannerInfo = {
+                            tag: foundBanner.tagName.toLowerCase(),
+                            id: foundBanner.id || '',
+                            classes: Array.from(foundBanner.classList).join(' '),
+                            text_preview: (foundBanner.textContent || '').substring(0, 200),
+                            position: getComputedStyle(foundBanner).position,
+                            z_index: getComputedStyle(foundBanner).zIndex,
+                            detection_method: detectionMethod,
+                            bounding_rect: {
+                                top: foundBanner.getBoundingClientRect().top,
+                                left: foundBanner.getBoundingClientRect().left,
+                                width: foundBanner.getBoundingClientRect().width,
+                                height: foundBanner.getBoundingClientRect().height
+                            },
+                            visible: foundBanner.offsetWidth > 0 && foundBanner.offsetHeight > 0,
+                            url: window.location.href,
+                            timestamp: new Date().toISOString()
+                        };
+
+                        console.log('[COOKIE_BANNER_DETECTED]', JSON.stringify(bannerInfo));
+                        
+                        // Also log buttons within the banner
+                        const buttons = foundBanner.querySelectorAll('button, a, [role="button"]');
+                        if (buttons.length > 0) {
+                            const buttonInfo = Array.from(buttons).map(btn => ({
+                                tag: btn.tagName.toLowerCase(),
+                                text: (btn.textContent || '').trim(),
+                                id: btn.id || '',
+                                classes: Array.from(btn.classList).join(' '),
+                                onclick: btn.onclick ? 'has_onclick' : 'no_onclick'
+                            }));
+                            
+                            console.log('[COOKIE_BANNER_BUTTONS]', JSON.stringify({
+                                url: window.location.href,
+                                timestamp: new Date().toISOString(),
+                                buttons: buttonInfo
+                            }));
+                        }
+                    }
+                }
+
+                function setupCookieBannerObserver() {
+                    // Initial detection
+                    setTimeout(detectCookieBanner, 500);
+                    setTimeout(detectCookieBanner, 2000);
+                    setTimeout(detectCookieBanner, 5000);
+
+                    // Periodic visibility check
+                    setInterval(function() {
+                        if (cookieBannerDetected && cookieBannerCurrentlyVisible) {
+                            isBannerStillVisible(); // This will update the visibility status
+                        }
+                    }, 2000);
+
+                    // MutationObserver for dynamically added banners
+                    if (window.MutationObserver) {
+                        cookieBannerObserver = new MutationObserver(function(mutations) {
+                            let shouldCheck = false;
+                            mutations.forEach(function(mutation) {
+                                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                                    mutation.addedNodes.forEach(function(node) {
+                                        if (node.nodeType === Node.ELEMENT_NODE) {
+                                            shouldCheck = true;
+                                        }
+                                    });
+                                }
+                                // Also check for removed nodes (banner might be hidden)
+                                if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
+                                    mutation.removedNodes.forEach(function(node) {
+                                        if (node === cookieBannerElement) {
+                                            cookieBannerCurrentlyVisible = false;
+                                            console.log('[COOKIE_BANNER_HIDDEN]', JSON.stringify({
+                                                timestamp: new Date().toISOString(),
+                                                url: window.location.href,
+                                                reason: 'element_removed_from_dom'
+                                            }));
+                                        }
+                                    });
+                                }
+                            });
+                            if (shouldCheck && !cookieBannerDetected) {
+                                setTimeout(detectCookieBanner, 100);
+                            }
+                        });
+                        
+                        cookieBannerObserver.observe(document, {
+                            childList: true,
+                            subtree: true
+                        });
+                        
+                        console.log('[COOKIE_BANNER_MONITOR]', 'Cookie banner observer initialized.');
+                    }
+                }
+
+                // Initialize cookie banner detection
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', setupCookieBannerObserver);
+                } else {
+                    setupCookieBannerObserver();
+                }
+
                 console.log('[DATALAYER_MONITOR]', 'DataLayer monitoring injected.');
                 console.log('[COOKIE_MONITOR]', 'Client-side cookie observer initialized.');
             """)
@@ -699,9 +1022,75 @@ def run_browser_with_proxy():
                                 data_field.get('2', {}),
                                 {"source": "datalayer", "raw_event": event_data}
                             )
+                            event_name = f"consent_{data_field.get('1', 'unknown')}"
+                            data_field_2 = data_field.get('2', {})
+                  
+                            if event_name == 'consent_update':
+                                # Check if all consent categories are denied
+                                consent_categories = [
+                                    'ad_storage', 'analytics_storage', 'ad_personalization', 
+                                    'ad_user_data', 'functionality_storage', 'personalization_storage', 
+                                    'security_storage'
+                                ]
+                                
+                                all_denied = True
+                                any_consent_found = False
+                                
+                                for category in consent_categories:
+                                    if category in data_field_2:
+                                        any_consent_found = True
+                                        if data_field_2[category] != 'denied':
+                                            all_denied = False
+                                            break
+                                
+                                if any_consent_found and all_denied:
+                                    # All consent categories are denied - user declined consent
+                                    structured_log = create_structured_log(
+                                        "consent", "user_consent_declined",
+                                        {
+                                            "consent_status": "declined",
+                                            "all_categories_denied": True,
+                                            "categories": data_field_2,
+                                            "declined_categories": consent_categories,
+                                            "url": "detected_from_datalayer"
+                                        },
+                                        {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
+                                    )
+                                elif any_consent_found:
+                                    # Check if any categories are granted (consent accepted)
+                                    granted_categories = []
+                                    denied_categories = []
+                                    
+                                    for category in consent_categories:
+                                        if category in data_field_2:
+                                            if data_field_2[category] == 'granted':
+                                                granted_categories.append(category)
+                                            elif data_field_2[category] == 'denied':
+                                                denied_categories.append(category)
+                                    
+                                    if granted_categories:
+                                        # User accepted some or all consent
+                                        structured_log = create_structured_log(
+                                            "consent", "user_consent_given",
+                                            {
+                                                "consent_status": "accepted",
+                                                "granted_categories": granted_categories,
+                                                "denied_categories": denied_categories,
+                                                "categories": data_field_2,
+                                                "url": "detected_from_datalayer"
+                                            },
+                                            {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
+                                        )
+                                    else:
+                                        # Regular consent update with no clear accept/deny
+                                        structured_log = create_structured_log(
+                                            "datalayer", event_name, {"data_layer_data": data_field_2},
+                                            {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
+                                        )
+                          
                         else:
                             structured_log = create_structured_log(
-                                "datalayer", event_name, data_field,
+                                "datalayer", event_name, {"data_layer_data": data_field},
                                 {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
                             )
                         output_queue.put(structured_log)
@@ -741,8 +1130,93 @@ def run_browser_with_proxy():
                             {"source": "client_observer"}
                         )
                         output_queue.put(structured_log)
+                    elif text.startswith('[COOKIE_BANNER_DETECTED]'):
+                        banner_data = json.loads(text.replace('[COOKIE_BANNER_DETECTED] ', ''))
+                        structured_log = create_structured_log(
+                            "cookie_banner", "banner_detected",
+                            {
+                                "banner_element": {
+                                    "tag": banner_data.get('tag'),
+                                    "id": banner_data.get('id'),
+                                    "classes": banner_data.get('classes'),
+                                    "position": banner_data.get('position'),
+                                    "z_index": banner_data.get('z_index')
+                                },
+                                "text_preview": banner_data.get('text_preview'),
+                                "detection_method": banner_data.get('detection_method'),
+                                "bounding_rect": banner_data.get('bounding_rect'),
+                                "visible": banner_data.get('visible'),
+                                "url": banner_data.get('url')
+                            },
+                            {
+                                "source": "cookie_banner_detector",
+                                "timestamp": banner_data.get('timestamp')
+                            }
+                        )
+                        output_queue.put(structured_log)
+                    elif text.startswith('[COOKIE_BANNER_BUTTONS]'):
+                        button_data = json.loads(text.replace('[COOKIE_BANNER_BUTTONS] ', ''))
+                        structured_log = create_structured_log(
+                            "cookie_banner", "banner_buttons",
+                            {
+                                "buttons": button_data.get('buttons', []),
+                                "button_count": len(button_data.get('buttons', [])),
+                                "url": button_data.get('url')
+                            },
+                            {
+                                "source": "cookie_banner_detector",
+                                "timestamp": button_data.get('timestamp')
+                            }
+                        )
+                        output_queue.put(structured_log)
+                    elif text.startswith('[COOKIE_BANNER_MONITOR]'):
+                        monitor_msg = text.replace('[COOKIE_BANNER_MONITOR] ', '')
+                        structured_log = create_structured_log(
+                            "info", "cookie_banner_monitor", {"message": monitor_msg},
+                            {"source": "cookie_banner_detector"}
+                        )
+                        output_queue.put(structured_log)
+                    elif text.startswith('[MARKETING_COOKIE_VIOLATION]'):
+                        violation_data = json.loads(text.replace('[MARKETING_COOKIE_VIOLATION] ', ''))
+                        structured_log = create_structured_log(
+                            "violation", "marketing_cookie_while_banner_visible",
+                            {
+                                "violation_type": violation_data.get('violation_type'),
+                                "cookie_name": violation_data.get('cookie_name'),
+                                "cookie_value": violation_data.get('cookie_value'),
+                                "action": violation_data.get('action'),
+                                "domain": violation_data.get('domain'),
+                                "url": violation_data.get('url'),
+                                "severity": violation_data.get('severity'),
+                                "compliance_risk": violation_data.get('compliance_risk'),
+                                "message": violation_data.get('message')
+                            },
+                            {
+                                "source": "compliance_monitor",
+                                "timestamp": violation_data.get('timestamp')
+                            }
+                        )
+                        output_queue.put(structured_log)
+                    elif text.startswith('[COOKIE_BANNER_HIDDEN]'):
+                        hidden_data = json.loads(text.replace('[COOKIE_BANNER_HIDDEN] ', ''))
+                        structured_log = create_structured_log(
+                            "cookie_banner", "banner_hidden",
+                            {
+                                "url": hidden_data.get('url'),
+                                "reason": hidden_data.get('reason')
+                            },
+                            {
+                                "source": "cookie_banner_detector",
+                                "timestamp": hidden_data.get('timestamp')
+                            }
+                        )
+                        output_queue.put(structured_log)
                 except (json.JSONDecodeError, KeyError):
-                    if '[DATALAYER_EVENT]' in text or '[DATALAYER_MONITOR]' in text or '[COOKIE_EVENT]' in text or '[COOKIE_MONITOR]' in text:
+                    if ('[DATALAYER_EVENT]' in text or '[DATALAYER_MONITOR]' in text or 
+                        '[COOKIE_EVENT]' in text or '[COOKIE_MONITOR]' in text or
+                        '[COOKIE_BANNER_DETECTED]' in text or '[COOKIE_BANNER_BUTTONS]' in text or 
+                        '[COOKIE_BANNER_MONITOR]' in text or '[MARKETING_COOKIE_VIOLATION]' in text or 
+                        '[COOKIE_BANNER_HIDDEN]' in text):
                         output_queue.put(f"CLIENT: {text}")
 
             site_page.on("console", handle_console)
@@ -759,6 +1233,41 @@ def run_browser_with_proxy():
         time.sleep(3)
         target_url = TARGET_DOMAIN or "https://www.handmadekultur.de"
         print(f"🌐 Navigating to: {target_url}", flush=True)
+        
+        # Use CDP for fastest page change detection
+        def handle_cdp_frame_navigated(event):
+            global last_logged_url
+            frame = event.get('frame', {})
+            if frame.get('parentId') is None:  # Only main frame
+                current_url = frame.get('url', '')
+                
+                # Log pageview immediately when navigation starts
+                data = {
+                    "to_url": current_url,
+                    "from_url": last_logged_url,
+                    "url": current_url,
+                    "previous_url": last_logged_url,
+                    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "referrer": None,  # Will be updated later
+                    "title": None,     # Will be updated later
+                    "description": None,
+                    "frame_id": frame.get('id', 'main_frame'),
+                    "timestamp": time.time()
+                }
+                
+                structured_log = create_structured_log(
+                    "url_change", "page_navigation",
+                    data,
+                    {"source": "cdp_frame_navigated"}
+                )
+                output_queue.put(structured_log)
+                last_logged_url = current_url
+        
+        # Enable CDP Page domain and listen for frame navigation
+        cdp = site_page.context.new_cdp_session(site_page)
+        cdp.send("Page.enable")
+        cdp.on("Page.frameNavigated", handle_cdp_frame_navigated)
+        
         site_page.goto(target_url, wait_until="domcontentloaded")
         site_page.wait_for_event("close", timeout=0)
 

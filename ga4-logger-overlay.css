@@ -1,5 +1,8 @@
 /* ===== ROOT VARIABLES ===== */
 :root {
+    /* Font sizing */
+    --base-font-size: 14px;
+    
     /* Dark theme (default) */
     --bg-primary: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
     --bg-secondary: rgba(0, 0, 0, 0.4);
@@ -69,7 +72,7 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Inter', sans-serif;
-    font-size: 12px;
+    font-size: var(--base-font-size);
     line-height: 1.4;
     height: 100vh;
     width: 100vw;
@@ -78,7 +81,7 @@ body {
     min-width: 500px;
     min-height: 400px;
     position: relative;
-    transition: background 0.3s ease, color 0.3s ease;
+    transition: background 0.3s ease, color 0.3s ease, font-size 0.2s ease;
 }
 
 body::before {
@@ -107,7 +110,7 @@ body::before {
 }
 
 .title {
-    font-size: 13px;
+    font-size: var(--header-font-size, 13px);
     font-weight: 600;
     color: var(--text-secondary);
     margin-right: 10px;
@@ -130,7 +133,7 @@ body::before {
     padding: 3px 6px;
     border-radius: 3px;
     cursor: pointer;
-    font-size: 9px;
+    font-size: var(--button-font-size, 9px);
     transition: all 0.2s ease;
     text-decoration: none;
     display: inline-flex;
@@ -192,7 +195,7 @@ body::before {
     border-radius: 4px;
     padding: 6px 8px;
     margin-bottom: 2px;
-    font-size: 10px;
+    font-size: calc(var(--base-font-size) * 0.8);
     line-height: 1.2;
     transition: all 0.2s ease;
 }
@@ -229,7 +232,7 @@ body::before {
     margin-top: 6px;
     padding-top: 6px;
     border-top: 1px solid var(--border-secondary);
-    font-size: 9px;
+    font-size: calc(var(--base-font-size) * 0.7);
     color: var(--text-primary);
     opacity: 0.8;
     white-space: pre-wrap;
@@ -305,7 +308,7 @@ body::before {
     padding: 2px 6px;
     border-radius: 4px;
     font-weight: 500;
-    font-size: 11px;
+    font-size: calc(var(--base-font-size) * 0.79);
     transition: all 0.2s ease;
     display: inline-block;
     margin: 0 2px;
@@ -718,7 +721,7 @@ body::before {
     color: var(--text-primary);
     padding: 3px 6px;
     border-radius: 3px;
-    font-size: 9px;
+    font-size: var(--button-font-size, 9px);
     width: 180px;
     margin-right: 6px;
     transition: all 0.2s ease;
@@ -757,22 +760,165 @@ body::before {
     cursor: not-allowed;
 }
 
+/* ===== FONT SIZE CONTROLS ===== */
+.font-size-btn {
+    background: var(--bg-message);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.font-size-btn:hover {
+    background: var(--bg-message-hover);
+    border-color: var(--border-hover);
+    transform: scale(1.05);
+}
+
 /* ===== URL CHANGE SEPARATOR ===== */
 .url-change-separator {
-    border-top: 2px solid var(--border-primary);
-    margin-top: 8px;
-    padding-top: 8px;
-    background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%);
+    border-top: 3px solid #3b82f6;
+    border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+    margin: 12px 0 8px 0;
+    padding: 12px 8px 8px 8px;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 50%, transparent 100%);
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+    position: relative;
+}
+
+.url-change-separator::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    background: #3b82f6;
+    border-radius: 2px 0 0 2px;
 }
 
 .url-change-separator .message-text {
-    font-weight: 600;
-    color: var(--color-event);
+    font-weight: 700;
+    font-size: calc(var(--base-font-size) * 1.1);
+    color: #1e40af;
+    text-shadow: 0 1px 2px rgba(59, 130, 246, 0.2);
+    line-height: 1.5;
+    padding-left: 4px;
+}
+
+[data-theme="light"] .url-change-separator .message-text {
+    color: #1d4ed8;
 }
 
 .url-change-separator .message-icon {
+    font-size: calc(var(--base-font-size) * 1.3);
+    color: #3b82f6;
+    filter: drop-shadow(0 1px 2px rgba(59, 130, 246, 0.3));
+}
+
+.url-change-separator:hover {
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.18) 0%, rgba(59, 130, 246, 0.06) 50%, transparent 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.15);
+    transition: all 0.2s ease;
+}
+
+/* ===== PRIVACY VIOLATION ALERTS ===== */
+.privacy-violation {
+    border: 2px solid #ef4444 !important;
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%) !important;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+    animation: privacyAlert 2s ease-in-out infinite alternate;
+    position: relative;
+}
+
+.privacy-violation::before {
+    content: '⚠️';
+    position: absolute;
+    left: -8px;
+    top: -8px;
+    background: #ef4444;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+    z-index: 10;
+}
+
+.critical-privacy-violation {
+    border: 3px solid #dc2626 !important;
+    background: linear-gradient(90deg, rgba(220, 38, 38, 0.2) 0%, rgba(220, 38, 38, 0.08) 100%) !important;
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4) !important;
+    animation: criticalAlert 1.5s ease-in-out infinite alternate;
+    position: relative;
+}
+
+.critical-privacy-violation::before {
+    content: '🚨';
+    position: absolute;
+    left: -10px;
+    top: -10px;
+    background: #dc2626;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 14px;
-    color: var(--color-event);
+    font-weight: bold;
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+    z-index: 10;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes privacyAlert {
+    0% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); }
+    100% { box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5); }
+}
+
+@keyframes criticalAlert {
+    0% { 
+        box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+        border-color: #dc2626;
+    }
+    100% { 
+        box-shadow: 0 8px 28px rgba(220, 38, 38, 0.6);
+        border-color: #b91c1c;
+    }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+/* Privacy violation text styling */
+.privacy-violation .message-text,
+.critical-privacy-violation .message-text {
+    line-height: 1.6;
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .privacy-violation {
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.03) 100%) !important;
+}
+
+[data-theme="light"] .critical-privacy-violation {
+    background: linear-gradient(90deg, rgba(220, 38, 38, 0.15) 0%, rgba(220, 38, 38, 0.05) 100%) !important;
 }
 
 /* ===== UTILITY CLASSES ===== */
@@ -837,4 +983,38 @@ body::before {
         right: 0;
         left: 0;
     }
+}
+
+/* Consent indicator dot */
+.consent-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin-left: 8px;
+    margin-right: 8px;
+    transition: all 0.3s ease;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+    display: inline-block !important;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+}
+
+.consent-dot.accepted {
+    background-color: #22c55e;
+    border-color: #16a34a;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+}
+
+.consent-dot.declined {
+    background-color: #ef4444;
+    border-color: #dc2626;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+.consent-dot.unknown {
+    background-color: #94a3b8;
+    border-color: #64748b;
+    box-shadow: 0 0 12px rgba(148, 163, 184, 0.4);
 }

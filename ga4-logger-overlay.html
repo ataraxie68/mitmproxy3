@@ -15,12 +15,15 @@
     <div class="header">
         <div style="display: flex; align-items: center;">
             <div class="title">🎯 Pixel Logger</div>
+            <div id="consentIndicator" class="consent-dot unknown" title="Consent Status: Unknown"></div>
             <input id="filterInput" type="text" placeholder="Filter events..." class="filter-input" />
             <button class="button-common theme-toggle" id="themeToggle">🌙 Dark</button>
             <button class="button-common toggle-details-btn" id="toggleDetailsBtn">Expand All</button>
             <button class="button-common toggle-details-btn" id="clearOutputBtn">Clear Output</button>
             <button class="button-common nav-btn" id="prevPageBtn" title="Previous Page">◀</button>
             <button class="button-common nav-btn" id="nextPageBtn" title="Next Page">▶</button>
+            <button class="button-common font-size-btn" id="decreaseFontBtn" title="Decrease Font Size">A-</button>
+            <button class="button-common font-size-btn" id="increaseFontBtn" title="Increase Font Size">A+</button>
             <button class="button-common settings-toggle" id="settingsToggle">⚙️ Settings</button>
         </div>
         <div class="status" id="status">Connecting...</div>

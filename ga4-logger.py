@@ -5,6 +5,7 @@ import json
 import time
 import os
 import re
+import hashlib
 from typing import Dict, List, Optional, Union
 from config import (
     PLATFORMS, ALL_HOSTS, ALL_PATHS, 
@@ -59,7 +60,7 @@ class UnifiedLogger:
     def __init__(self):
         self.enable_debug = DEBUG_MODE
     
-    def log_structured(self, log_type: str, event_name: str, data: Dict, metadata: Dict = None, request_url: str = None) -> None:
+    def log_structured(self, log_type: str, event_name: str, data: Dict, metadata: Dict = None) -> None:
         """Output structured log entries for overlay consumption"""
         # Structured JSON for overlay (primary output)
         log_entry = {
@@ -69,8 +70,6 @@ class UnifiedLogger:
             "data": data,
             "metadata": metadata or {}
         }
-        if request_url:
-            log_entry["metadata"]["request_url"] = request_url
         print(f"[STRUCTURED] {json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))}", flush=True)
     
     def log_debug(self, message: str) -> None:
@@ -90,6 +89,12 @@ class UnifiedLogger:
 # Global logger instance
 unified_logger = UnifiedLogger()
 
+def _generate_request_hash(url: str, post_data: str = "") -> str:
+    """Generate unique hash for request/response matching"""
+    # Combine URL and POST data for unique fingerprint
+    content = f"{url}|{post_data}"
+    return hashlib.md5(content.encode()).hexdigest()[:12]  # Short hash (12 chars)
+
 # Startup message
 unified_logger.log_info("GA4 + Marketing Pixel Logger with organized platform configuration ready!")
 unified_logger.log_info(f"Configured Platforms: {len(PLATFORMS)} ({', '.join(PLATFORMS.keys())})")
@@ -99,9 +104,6 @@ if TARGET_DOMAIN:
     unified_logger.log_info(f"Target Domain: {TARGET_DOMAIN}")
 unified_logger.log_info("-" * 50)
 
-def output_structured_log(log_type: str, event_name: str, data: Dict, metadata: Dict = None, request_url: str = None) -> None:
-    """Output structured log entries - now uses unified logger"""
-    unified_logger.log_structured(log_type, event_name, data, metadata, request_url)
 
 def extract_event_info(data: Dict[str, str]) -> List[str]:
     """Legacy function - now delegates to unified system"""
@@ -820,7 +822,6 @@ class UnifiedPlatformDetector:
         if flow:
             sgtm_result = self._check_server_side_tracking(host, path, flow)
             if sgtm_result == "sGTM":
-                add_dynamic_host(host, "sGTM")
                 self.platform_cache[cache_key] = "sGTM"
                 return "sGTM"
         
@@ -871,7 +872,8 @@ class UnifiedPlatformDetector:
             if host in config.hosts:
                 return platform_name
         
-        return "Unknown"
+        # Return "Custom Tracking" instead of "Unknown" for proper response handling
+        return "Custom Tracking"
     
     def _is_server_side_gtm(self, host: str, path: str, flow: http.HTTPFlow) -> bool:
         """Integrated server-side GTM detection based only on parameters."""
@@ -896,10 +898,12 @@ class UnifiedPlatformDetector:
     
     def _check_server_side_tracking(self, host: str, path: str, flow: http.HTTPFlow) -> str:
         """Check server-side tracking and return platform name or None"""
-        # Skip if already known GA4 or DoubleClick hosts
-        # This check is now less relevant as the primary detection is parameter-based,
-        # but it can serve as a quick exit path.
-        if host in PLATFORMS["GA4"].hosts or host in PLATFORMS["DoubleClick"].hosts:
+        # Skip if already known platform hosts - prevent misclassification
+        known_platform_hosts = set()
+        for platform_config in PLATFORMS.values():
+            known_platform_hosts.update(platform_config.hosts)
+        
+        if host in known_platform_hosts:
             return None
         
         # Use consolidated parameter extraction
@@ -912,10 +916,10 @@ class UnifiedPlatformDetector:
             if DEBUG_MODE:
                 unified_logger.log_debug(f"[SGTM DETECTION] Host: {host}, Path: {path}, Score: {detection_result['score']}")
             return "sGTM"
+        elif detection_result["is_server_side"] and detection_result["platform"] == "Custom Tracking":
+            return "Custom Tracking"
         else:
-            return "unknown"
-        
-        return None
+            return None
     
     def _get_all_params(self, flow: http.HTTPFlow) -> Dict[str, str]:
         """Extract all parameters from request with caching"""
@@ -1047,13 +1051,14 @@ class UnifiedPlatformDetector:
         return {"is_server_side": False, "platform": "None", "score": 0}
     
     def clear_cache(self):
-        """Clear detection cache"""
+        """Clear detection cache and clean up dynamic hosts"""
         if len(self.platform_cache) > 200:
             # Keep most common platforms, clear the rest
             common_platforms = {k: v for k, v in self.platform_cache.items() 
                               if v in ["GA4", "Facebook", "TikTok", "Google Ads", "sGTM"]}
             self.platform_cache.clear()
             self.platform_cache.update(common_platforms)
+            
 
 
 # Global detector instance
@@ -1330,7 +1335,7 @@ def _get_highlight_info(pixel_id: str, platform: str, event_name: str) -> Dict[s
     
     return highlight_info
 
-def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_path: Optional[str] = None, request_url: Optional[str] = None) -> None:
+def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_path: Optional[str] = None, request_url: Optional[str] = None, post_data: str = "") -> None:
     """Process a marketing pixel event from any platform"""
     unified_logger.log_debug(f"Processing {platform} event with {len(data)} parameters")
     
@@ -1342,43 +1347,23 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
         if platform_key in data:
             mapped_data[friendly_name] = data[platform_key]
     
-    # Extract key identifiers using optimized lookup
-    # Add request path, URL, and host to data for custom handlers
-    if request_path:
-        data["_request_path"] = request_path
-    if request_url:
-        data["_request_url"] = request_url
-        from urllib.parse import urlparse
-        parsed_url = urlparse(request_url)
-        data["_request_host"] = parsed_url.netloc
+
     pixel_id, event_name, event_type = extract_platform_identifiers(data, platform)
 
     unified_logger.log_debug(f"{event_name}, {pixel_id}, {platform}")
     
     # Handle validation errors and unknown requests
     if event_name == "Unknown" and not pixel_id:
-        # For Custom Tracking and sGTM (unknown requests), show a clean JSON info log instead of error
-        debug_info = {
-                "request_path": request_path,
-                "platform": platform,
-                "event_name": event_name,
-                "pixel_id": pixel_id,
-                "param_count": len(data),
-                "available_params": list(data.keys()),
-                "mapped_data": mapped_data,
-                "all_parameters": {k: str(v)[:200] + "..." if len(str(v)) > 200 else str(v) for k, v in data.items()}
-            }
-            
-        if platform in ["Custom Tracking", "sGTM"]:
-            # Clean up parameters - remove internal ones for displa      
-            log_type = platform
-        else:
-            log_type = "error"
-            # For known platforms, still show error
-        unified_logger.log_structured(log_type, f"{platform.lower()}_event", 
-                                        {"message": f"Missing {platform} event name and pixel ID", "request_path": request_path,
-                                        "debug_info": debug_info}, 
-                                        {"raw_data": data, "debug_details": debug_info}, request_url=request_url)
+   
+        # Standardized error event data structure
+        error_event_data = {
+            "platform": platform,
+            "pixel_id": "",  # Empty since missing
+            "event_type": "",
+            "message": f"Missing {platform} event name and pixel ID",
+        }
+        unified_logger.log_structured("custom_tracking", "not defined", error_event_data, 
+                                      {"request_path": request_path, "raw_data": data, "request_url": request_url})
         return
     
     # Additional debugging for missing event names (when pixel_id exists but event_name is Unknown)
@@ -1405,6 +1390,9 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
     # Process successful event (all platforms) - unified log type
     log_type = "marketing_pixel_event"
     
+    # Generate unique hash for request/response matching
+    request_hash = _generate_request_hash(request_url or "", post_data)
+    
     event_data = {
         "platform": platform,
         "pixel_id": pixel_id,  # Keep for backwards compatibility
@@ -1417,7 +1405,8 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
         "request_url": request_url,  # Add request_url to event_data
         "referrer_url": data.get("rl", data.get("ref", data.get("rf", ""))),
         "mapped_data": mapped_data,
-        "highlight_info": highlight_info
+        "highlight_info": highlight_info,
+        "request_hash": request_hash  # Unique hash for matching
     }
     
     # Add descriptive text for special request types
@@ -1446,7 +1435,7 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
     
     
     unified_logger.log_structured(log_type, event_name, event_data, 
-                                  {"request_path": request_path, "raw_data": data}, request_url=request_url)
+                                  {"request_path": request_path, "raw_data": data, "request_url": request_url})
 
 
 
@@ -1478,8 +1467,6 @@ def is_server_side_tracking_request(flow: http.HTTPFlow) -> bool:
     detection_result = platform_detector._detect_server_side_tracking(host, path, params, advanced_scoring=False)
     
     if detection_result["is_server_side"]:
-        # We can still add the host dynamically for logging purposes, even if it's not used for detection.
-        add_dynamic_host(host, detection_result["platform"])
         return True
             
     return False
@@ -1489,15 +1476,6 @@ def is_server_side_gtm_request(host: str, path: str, flow: http.HTTPFlow) -> boo
     """Legacy function - now uses unified detector"""
     return platform_detector._is_server_side_gtm(host, path, flow)
 
-def add_dynamic_host(host: str, platform: str) -> None:
-    """Dynamically add discovered tracking host to known hosts"""
-    global ALL_HOSTS
-    if host not in ALL_HOSTS:
-        ALL_HOSTS.add(host)
-        # Also add to specific platform if it exists
-        if platform in PLATFORMS:
-            PLATFORMS[platform].hosts.add(host)
-        unified_logger.log_info(f"[AUTO-DETECTED] {platform} tracking host: {host}")
 
 class UnifiedResponseProcessor:
     """Unified response processing for tracking and cookie handling"""
@@ -1521,6 +1499,10 @@ class UnifiedResponseProcessor:
         status_code = flow.response.status_code
         platform = self.platform_detector.detect_platform(flow.request.pretty_host, flow.request.path, flow)
         
+        # Generate same hash as request for matching
+        post_data = flow.request.get_text() if flow.request.content else ""
+        request_hash = _generate_request_hash(flow.request.url, post_data)
+        
         # Detect JavaScript response
         content_type = flow.response.headers.get("content-type", "").lower()
         is_javascript = any(js_type in content_type for js_type in ["javascript", "application/js", "text/js"])
@@ -1540,7 +1522,7 @@ class UnifiedResponseProcessor:
         
         # Handle different status codes for non-JavaScript responses
         if status_code >= 400:
-            self._log_failed_request(flow, platform, status_code)
+            self._log_failed_request(flow, platform, status_code, request_hash)
         elif status_code in [200, 204, 302]:
             # Send single status update to overlay for successful non-JavaScript responses
             status_data = {
@@ -1549,27 +1531,36 @@ class UnifiedResponseProcessor:
                 "status_code": status_code,
                 "method": flow.request.method,
                 "success": True,
+                "request_hash": request_hash,  # Hash for matching
                 **response_info
             }
             
+            # Create standardized metadata structure
             metadata = {
                 "request_path": flow.request.path, 
+                "raw_data": {}, 
+                "request_url": flow.request.url,
                 "response_headers": dict(flow.response.headers),
                 "response_info": response_info
             }
-            
-            self.logger.log_structured("request_status_update", "status_received", status_data, metadata, request_url=flow.request.url)
+            self.logger.log_structured("request_status_update", "status_received", status_data, metadata)
             self._log_successful_request(flow, platform, status_code, request_key)
     
-    def _log_failed_request(self, flow: http.HTTPFlow, platform: str, status_code: int) -> None:
+    def _log_failed_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str = "") -> None:
         """Log failed tracking request"""
         self.logger.log_structured("warning", "tracking_request_failed", {
             "platform": platform,
             "status_code": status_code,
             "url": flow.request.url,
             "method": flow.request.method,
-            "message": f"Tracking request failed with HTTP {status_code}"
-        }, {"request_path": flow.request.path, "response_headers": dict(flow.response.headers)}, request_url=flow.request.url)
+            "message": f"Tracking request failed with HTTP {status_code}",
+            "request_hash": request_hash  # Hash for matching
+        }, {
+            "request_path": flow.request.path, 
+            "raw_data": {}, 
+            "request_url": flow.request.url,
+            "response_headers": dict(flow.response.headers)
+        })
     
     def _log_successful_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_key: str) -> None:
         """Log and track successful request"""
@@ -1612,10 +1603,10 @@ class UnifiedResponseProcessor:
             event_data,
             {
                 "request_path": path, 
+                "raw_data": {}, 
                 "request_url": flow.request.url,
                 "response_headers": dict(flow.response.headers)
-            },
-            request_url=flow.request.url
+            }
         )
     
     def _cleanup_old_requests(self) -> None:
@@ -1684,7 +1675,11 @@ class UnifiedResponseProcessor:
             "cookie_count": len(cookies_info),
             "cookie_type": cookie_type,
             "full_cookies": set_cookie_headers
-        }, {"request_path": path}, request_url=request_url)
+        }, {
+            "request_path": path, 
+            "raw_data": {}, 
+            "request_url": request_url
+        })
 
 
 # Global response processor instance
@@ -1722,14 +1717,17 @@ class UnifiedRequestProcessor:
         try:
             request_data = self._extract_request_data(flow, platform)
             
+            # Get POST data for hash generation
+            post_data = flow.request.get_text() if flow.request.content else ""
+            
             # Process single request or batch
             if isinstance(request_data, list):
                 # Handle batch requests (like GA4 JSON batches)
                 for data in request_data:
-                    process_marketing_pixel_event(data, platform, flow.request.path, flow.request.url)
+                    process_marketing_pixel_event(data, platform, flow.request.path, flow.request.url, post_data)
             else:
                 # Handle single request
-                process_marketing_pixel_event(request_data, platform, flow.request.path, flow.request.url)
+                process_marketing_pixel_event(request_data, platform, flow.request.path, flow.request.url, post_data)
         
         except Exception as e:
             unified_logger.log_error(f"PARSE_ERROR: {str(e)[:100]}")
