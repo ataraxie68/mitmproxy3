@@ -370,44 +370,153 @@ class GoogleAdsEventHandler(BaseEventHandler):
 
 
 class LinkedInEventHandler(BaseEventHandler):
-    """Specialized handler for LinkedIn events"""
+    """Specialized handler for LinkedIn events with detailed path classification"""
     
     def extract_identifiers(self, data: Dict[str, str]) -> tuple[str, str, str]:
         pixel_id = data.get(self.config.pixel_id_key, "")
-        event_type = "B2B Tracking"
+        request_path = data.get("_request_path", "")
         
-        if data.get("conversionId"):
-            event_name = data.get("conversionId")
-            event_type = "Conversion"
-        elif data.get("eventId"):
-            event_id = data.get("eventId")
-            event_name = f"Event_{event_id[:8]}" if len(event_id) > 10 else event_id
-            event_type = "Custom Event"
-        elif data.get("v") and data.get("v") != "0":
-            event_name = "Conversion"
-            event_type = "Conversion"
-        elif url := data.get("url", "").lower():
-            url_events = {
-                ("checkout", "purchase", "order"): ("Purchase", "E-commerce"),
-                ("cart", "basket"): ("Add_to_Cart", "E-commerce"), 
-                ("contact", "form"): ("Lead", "Lead Generation"),
-                ("signup", "register"): ("Sign_Up", "Registration")
-            }
-            event_name = "Page_View"  # default
-            event_type = "Page Tracking"
-            for keywords, (event_type_name, event_category) in url_events.items():
-                if any(keyword in url for keyword in keywords):
-                    event_name = event_type_name
-                    event_type = event_category
-                    break
+        # Enhanced path-based classification based on LinkedIn API documentation
+        if "/collect" in request_path:
+            # General data collection endpoint
+            event_name, event_type = self._classify_collect_endpoint(data)
+        elif "/attribution_trigger" in request_path:
+            # Conversion event trigger endpoint
+            event_name = "Attribution Trigger"
+            event_type = "Conversion Attribution"
+        elif "/li.lms-analytics/" in request_path:
+            # LinkedIn LMS Analytics
+            event_name = "LMS Analytics"
+            event_type = "Learning Analytics"
+        elif "/px" in request_path:
+            # Pixel endpoint
+            event_name = "Pixel Fire"
+            event_type = "Pixel Tracking"
         else:
-            event_name = "GTM_Event" if data.get("tm") == "gtmv2" else "Insight_Tag"
-            event_type = "Insight Tag"
+            # Fallback to parameter-based detection
+            event_name, event_type = self._classify_by_parameters(data)
         
+        # Add li_fat_id information if present
         if li_fat_id := data.get("li_fat_id"):
             event_name = f"{event_name} (li_fat_id: {li_fat_id})"
         
         return pixel_id, event_name, event_type
+    
+    def _classify_collect_endpoint(self, data: Dict[str, str]) -> tuple[str, str]:
+        """Classify /collect endpoint based on parameters and usage patterns"""
+        # Check format parameter for JavaScript vs beacon-style requests
+        fmt = data.get("fmt", "")
+        
+        if fmt == "js":
+            event_name = "Data Collection (JS)"
+            event_type = "JavaScript Tracking"
+        else:
+            event_name = "Data Collection (Beacon)"
+            event_type = "Beacon Tracking"
+        
+        # Check for specific tracking purposes
+        if data.get("conversionId"):
+            event_name = f"Conversion Collection ({fmt or 'beacon'})"
+            event_type = "Conversion Tracking"
+        elif data.get("eventId"):
+            event_name = f"Custom Event Collection ({fmt or 'beacon'})"
+            event_type = "Custom Event Tracking"
+        elif data.get("v") and data.get("v") != "0":
+            event_name = f"Value Tracking ({fmt or 'beacon'})"
+            event_type = "Value-based Tracking"
+        
+        return event_name, event_type
+    
+    def _classify_by_parameters(self, data: Dict[str, str]) -> tuple[str, str]:
+        """Fallback classification based on parameters"""
+        if data.get("conversionId"):
+            return "Conversion Event", "Conversion Tracking"
+        elif data.get("eventId"):
+            event_id = data.get("eventId")
+            event_name = f"Custom Event_{event_id[:8]}" if len(event_id) > 10 else f"Custom Event_{event_id}"
+            return event_name, "Custom Event Tracking"
+        elif data.get("v") and data.get("v") != "0":
+            return "Value Event", "Value-based Tracking"
+        elif url := data.get("url", "").lower():
+            # URL-based event classification
+            url_events = {
+                ("checkout", "purchase", "order"): ("Purchase Page", "E-commerce Tracking"),
+                ("cart", "basket"): ("Cart Page", "E-commerce Tracking"), 
+                ("contact", "form"): ("Lead Page", "Lead Generation"),
+                ("signup", "register"): ("Registration Page", "Registration Tracking"),
+                ("demo", "trial"): ("Demo Request", "Lead Generation"),
+                ("download"): ("Download Page", "Content Engagement")
+            }
+            
+            for keywords, (event_name, event_type) in url_events.items():
+                if isinstance(keywords, tuple):
+                    if any(keyword in url for keyword in keywords):
+                        return event_name, event_type
+                else:
+                    if keywords in url:
+                        return event_name, event_type
+            
+            return "Page View", "Page Tracking"
+        else:
+            # Check for GTM integration
+            if data.get("tm") == "gtmv2":
+                return "GTM Integration", "Tag Manager Event"
+            else:
+                return "Insight Tag", "General Tracking"
+    
+    def extract_platform_info(self, data: Dict[str, str], mapped_data: Dict[str, str], event_name: str = "") -> List[str]:
+        """Extract LinkedIn-specific information with enhanced details"""
+        extra_info = []
+        request_path = data.get("_request_path", "")
+        
+        # Path-specific information
+        if "/collect" in request_path:
+            # Add format information
+            if fmt := mapped_data.get('format'):
+                extra_info.append(f"format: {fmt}")
+            
+            # Add timing information
+            timing_info = "page load" if "/collect" in request_path else "event trigger"
+            extra_info.append(f"timing: {timing_info}")
+            
+            # Add usage context
+            if "GTM" in event_name:
+                extra_info.append("usage: base pixel tag")
+            elif "Custom Event" in event_name:
+                extra_info.append("usage: custom trigger")
+            elif "Conversion" in event_name:
+                extra_info.append("usage: conversion trigger")
+            else:
+                extra_info.append("usage: audience building")
+                
+        elif "/attribution_trigger" in request_path:
+            extra_info.append("type: conversion attribution")
+            extra_info.append("timing: user conversion")
+            extra_info.append("style: beacon-only")
+        
+        # Standard parameter extraction
+        if value := mapped_data.get('value'):
+            currency = mapped_data.get('currency', '')
+            extra_info.append(f"value: {value} {currency}".strip())
+        
+        if order_id := mapped_data.get('order_id'):
+            extra_info.append(f"order: {order_id}")
+        
+        if page_url := mapped_data.get('page_url'):
+            domain = page_url.split("//")[-1].split("/")[0] if "//" in page_url else page_url.split("/")[0]
+            extra_info.append(f"domain: {domain}")
+        
+        # LinkedIn-specific IDs
+        if partner_id := mapped_data.get('partner_id'):
+            extra_info.append(f"partner: {partner_id}")
+        
+        if conversion_id := mapped_data.get('conversion_id'):
+            extra_info.append(f"conversion: {conversion_id}")
+        
+        if li_fat_id := mapped_data.get('li_fat_id'):
+            extra_info.append(f"fat_id: {li_fat_id}")
+        
+        return extra_info
 
 
 class PinterestEventHandler(BaseEventHandler):
@@ -695,6 +804,116 @@ class CCMEventHandler(BaseEventHandler):
         return pixel_id, event_name, event_type
 
 
+class ConsentManagementPlatformEventHandler(BaseEventHandler):
+    """Generic handler for all Consent Management Platform events (OneTrust, Usercentrics, Cookiebot, etc.)"""
+    
+    def extract_identifiers(self, data: Dict[str, str]) -> tuple[str, str, str]:
+        pixel_id = data.get(self.config.pixel_id_key, "")
+        request_path = data.get("_request_path", "")
+        request_host = data.get("_request_host", "")
+        
+        # Detect CMP provider from host
+        cmp_provider = self._detect_cmp_provider(request_host)
+        
+        # Determine event type based on URL path and parameters
+        if any(path in request_path for path in ["/browser-ui/", "/otnotice/", "/cc.js", "/cs.js", "/uc.js"]):
+            event_name = f"{cmp_provider} Banner Load"
+            event_type = "Banner Display"
+        elif any(path in request_path for path in ["/api/", "/consent/", "/groups/", "/choice.js"]):
+            if "consent" in request_path.lower():
+                event_name = f"{cmp_provider} Consent API"
+                event_type = "Consent Processing"
+            elif "settings" in request_path.lower() or "groups" in request_path.lower():
+                event_name = f"{cmp_provider} Settings Load"
+                event_type = "Configuration"
+            else:
+                event_name = f"{cmp_provider} API Request"
+                event_type = "API Communication"
+        elif any(path in request_path for path in ["/settings/", "/latest/", "/scripttemplates/"]):
+            event_name = f"{cmp_provider} Configuration"
+            event_type = "Settings"
+        elif any(path in request_path for path in ["/privacy-notice/", "/cookie-policy/"]):
+            event_name = f"{cmp_provider} Policy Load"
+            event_type = "Policy Display"
+        else:
+            event_name = f"{cmp_provider} Activity"
+            event_type = "Consent Management"
+        
+        return pixel_id, event_name, event_type
+    
+    def _detect_cmp_provider(self, host: str) -> str:
+        """Detect which CMP provider based on hostname"""
+        cmp_mapping = {
+            "usercentrics": "Usercentrics",
+            "cookielaw.org": "OneTrust", 
+            "onetrust.com": "OneTrust",
+            "optanon": "OneTrust",
+            "cookiebot.com": "Cookiebot",
+            "consentmanager": "ConsentManager",
+            "consensu.org": "ConsentManager", 
+            "iubenda.com": "Iubenda",
+            "cookie-script.com": "CookieScript",
+            "quantcast.com": "Quantcast",
+            "trustarc.com": "TrustArc",
+            "didomi": "Didomi"
+        }
+        
+        for key, provider in cmp_mapping.items():
+            if key in host.lower():
+                return provider
+        
+        return "CMP"  # Generic fallback
+    
+    def extract_platform_info(self, data: Dict[str, str], mapped_data: Dict[str, str], event_name: str = "") -> List[str]:
+        extra_info = []
+        
+        # Version information (various CMP providers)
+        if version := mapped_data.get('version'):
+            extra_info.append(f"version: {version}")
+        
+        # Language/locale
+        if language := mapped_data.get('language'):
+            extra_info.append(f"lang: {language}")
+        if location := mapped_data.get('location'):
+            extra_info.append(f"location: {location}")
+        
+        # IDs and identifiers
+        if group_id := mapped_data.get('group_id'):
+            extra_info.append(f"group: {group_id}")
+        if domain_id := mapped_data.get('domain_id'):
+            extra_info.append(f"domain: {domain_id}")
+        if website_id := mapped_data.get('website_id'):
+            extra_info.append(f"site: {website_id}")
+        if cookiebot_id := mapped_data.get('cookiebot_id'):
+            extra_info.append(f"cbid: {cookiebot_id}")
+        
+        # Services/purposes
+        if services := mapped_data.get('services'):
+            try:
+                if services.startswith('[') and services.endswith(']'):
+                    import json
+                    services_list = json.loads(services)
+                    extra_info.append(f"services: {len(services_list)}")
+                else:
+                    extra_info.append(f"services: {services[:20]}")
+            except:
+                extra_info.append(f"services: {services[:20]}")
+        
+        # Consent data
+        if consent_data := mapped_data.get('consent_data'):
+            extra_info.append(f"consent: {consent_data[:15]}...")
+        if consent_id := mapped_data.get('consent_id'):
+            extra_info.append(f"consent_id: {consent_id}")
+        
+        # Controller/settings
+        if controller_id := mapped_data.get('controller_id'):
+            extra_info.append(f"controller: {controller_id}")
+        if settings_id := mapped_data.get('settings_id'):
+            extra_info.append(f"settings: {settings_id}")
+        
+        return extra_info
+
+
 # Event Handler Factory
 EVENT_HANDLERS = {
     "GA4": GA4EventHandler,
@@ -707,7 +926,8 @@ EVENT_HANDLERS = {
     "Microsoft/Bing": MicrosoftBingEventHandler,
     "DoubleClick": DoubleClickEventHandler,
     "Privacy Sandbox": PrivacySandboxEventHandler,
-    "Google Consent Collection": CCMEventHandler
+    "Google Consent Collection": CCMEventHandler,
+    "Consent Management Platform": ConsentManagementPlatformEventHandler
 }
 
 
@@ -1362,8 +1582,11 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
             "event_type": "",
             "message": f"Missing {platform} event name and pixel ID",
         }
+        # Filter out internal request metadata from raw_data
+        clean_data = {k: v for k, v in data.items() if not k.startswith('_request_')}
+        
         unified_logger.log_structured("custom_tracking", "not defined", error_event_data, 
-                                      {"request_path": request_path, "raw_data": data, "request_url": request_url})
+                                      {"request_path": request_path, "raw_data": clean_data, "request_url": request_url})
         return
     
     # Additional debugging for missing event names (when pixel_id exists but event_name is Unknown)
@@ -1402,7 +1625,6 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
         "event_type": event_type,  # New field for event classification
         "extra_info": extra_info,
         "page_url": data.get("dl", data.get("url", data.get("u", ""))),
-        "request_url": request_url,  # Add request_url to event_data
         "referrer_url": data.get("rl", data.get("ref", data.get("rf", ""))),
         "mapped_data": mapped_data,
         "highlight_info": highlight_info,
@@ -1434,8 +1656,11 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
     #     event_data.update({data.get("gcs", "")})
     
     
+    # Filter out internal request metadata from raw_data
+    clean_data = {k: v for k, v in data.items() if not k.startswith('_request_')}
+    
     unified_logger.log_structured(log_type, event_name, event_data, 
-                                  {"request_path": request_path, "raw_data": data, "request_url": request_url})
+                                  {"request_path": request_path, "raw_data": clean_data, "request_url": request_url})
 
 
 
@@ -1451,9 +1676,30 @@ def is_tracking_request(flow: http.HTTPFlow) -> bool:
     # Then check for known tracking paths as a fallback.
     host = flow.request.pretty_host
     path = flow.request.path
-    if host in ALL_HOSTS and any(path.startswith(tracking_path) for tracking_path in ALL_PATHS):
-        return True
+    
+    # More flexible path matching for tracking requests
+    if host in ALL_HOSTS:
+        # First try exact startswith matching
+        if any(path.startswith(tracking_path) for tracking_path in ALL_PATHS):
+            return True
+        
+        # Then try more flexible matching for common tracking patterns
+        for tracking_path in ALL_PATHS:
+            # Remove trailing slashes for comparison
+            clean_tracking_path = tracking_path.rstrip('/')
+            clean_request_path = path.rstrip('/').split('?')[0]  # Remove query params
+            
+            # Check if the path contains the tracking path segment
+            if (clean_tracking_path in clean_request_path or 
+                clean_request_path.startswith(clean_tracking_path) or
+                # Handle cases like "/api/v1/settings" matching "/api/"
+                (clean_tracking_path.endswith('/') and clean_request_path.startswith(clean_tracking_path.rstrip('/')))):
+                return True
 
+    # Debug logging for tracking request detection failures
+    if DEBUG_MODE and host in ALL_HOSTS:
+        unified_logger.log_debug(f"Host {host} found in ALL_HOSTS but path {path} not matched. Available paths: {list(ALL_PATHS)}")
+    
     return False
 
 
@@ -1486,8 +1732,17 @@ class UnifiedResponseProcessor:
     
     def process_response(self, flow: http.HTTPFlow) -> None:
         """Process response for tracking status and cookie monitoring"""
-        # Process tracking request responses
-        if is_tracking_request(flow):
+        # Process responses for ALL requests that are handled on the request side
+        host = flow.request.pretty_host
+        path = flow.request.path
+        platform = self.platform_detector.detect_platform(host, path, flow)
+        
+        # Check if this request was processed on the request side (any recognized platform)
+        if platform != "Custom Tracking":
+            # Debug logging for response handling
+            if DEBUG_MODE:
+                is_tracking = is_tracking_request(flow)
+                unified_logger.log_debug(f"Processing response for {platform} (is_tracking: {is_tracking}, host: {host}, path: {path})")
             self._handle_tracking_response(flow)
         
         # Process cookie setting
@@ -1503,14 +1758,42 @@ class UnifiedResponseProcessor:
         post_data = flow.request.get_text() if flow.request.content else ""
         request_hash = _generate_request_hash(flow.request.url, post_data)
         
-        # Detect JavaScript response
+        # Detect JavaScript response and build comprehensive response info
         content_type = flow.response.headers.get("content-type", "").lower()
         is_javascript = any(js_type in content_type for js_type in ["javascript", "application/js", "text/js"])
-        response_info = {"response_type": "JavaScript" if is_javascript else "Data"}
+        
+        # Build comprehensive response info
+        response_info = {
+            "response_type": "JavaScript" if is_javascript else "Data",
+            "content_type": content_type,
+            "status_code": status_code
+        }
         
         # Add response size info
         if flow.response.content:
             response_info["response_size"] = f"{len(flow.response.content)} bytes"
+        else:
+            response_info["response_size"] = "0 bytes"
+        
+        # Add response timing if available
+        try:
+            if (hasattr(flow, 'response') and hasattr(flow.response, 'timestamp_end') and 
+                hasattr(flow.request, 'timestamp_start') and 
+                flow.response.timestamp_end and flow.request.timestamp_start):
+                response_time = (flow.response.timestamp_end - flow.request.timestamp_start) * 1000
+                response_info["response_time"] = f"{response_time:.0f}ms"
+        except (AttributeError, TypeError):
+            # Timing calculation failed, skip it
+            pass
+        
+        # Add cache headers if present
+        cache_control = flow.response.headers.get("cache-control", "")
+        if cache_control:
+            response_info["cache_control"] = cache_control
+        
+        # Add other relevant headers
+        if etag := flow.response.headers.get("etag"):
+            response_info["etag"] = etag[:20] + "..." if len(etag) > 20 else etag
         
         # Handle JavaScript endpoints separately
         if is_javascript:
@@ -1545,6 +1828,10 @@ class UnifiedResponseProcessor:
             }
             self.logger.log_structured("request_status_update", "status_received", status_data, metadata)
             self._log_successful_request(flow, platform, status_code, request_key)
+            
+            # Debug: Log response info for troubleshooting
+            if DEBUG_MODE:
+                unified_logger.log_debug(f"Response info sent: {response_info} for {flow.request.url}")
     
     def _log_failed_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str = "") -> None:
         """Log failed tracking request"""
@@ -1736,6 +2023,11 @@ class UnifiedRequestProcessor:
         """Extract request data from GET/POST unified"""
         # Start with URL parameters
         url_params = dict(flow.request.query)
+        
+        # Add request metadata for platform handlers (will be filtered out of raw_data before logging)
+        url_params["_request_path"] = flow.request.path
+        url_params["_request_host"] = flow.request.pretty_host
+        url_params["_request_url"] = flow.request.url
         
         if flow.request.method == "GET":
             return url_params

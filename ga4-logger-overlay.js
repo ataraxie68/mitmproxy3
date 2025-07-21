@@ -374,7 +374,7 @@ function getPlatformHighlightClass(platform) {
 
 // ===== PARAMETER VALIDATION =====
 function checkGA4ParameterLength(paramName, paramValue, platform) {
-    if (platform !== 'GA4' || !paramValue) return null;
+    if ((platform !== 'GA4' && platform !== 'sGTM' && platform !== 'Server-side GTM') || !paramValue) return null;
 
     const limit = CONFIG.ga4Limits[paramName] || CONFIG.ga4Limits.custom_parameter;
     const current = paramValue.length;
@@ -425,7 +425,7 @@ function highlightLongParameters(detailsText, platform) {
             const paramName = match[1].trim();
             const paramValue = match[2].trim();
 
-            if (platform === 'GA4') {
+            if (platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM') {
                 const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
                 if (lengthCheck) {
                     const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
@@ -700,12 +700,12 @@ function formatUrlChangeDetails(data) {
 function getMarketingPixelSummary(data, event) {
     const platform = data.platform || 'Unknown';
 
-    // Check if we have highlighting info with pre-formatted text
-    if (data.highlight_info && data.highlight_info.should_highlight && data.highlight_info.highlight_text) {
-        const platformClass = getPlatformHighlightClass(data.platform);
-        // Use the pre-formatted highlight text from Python (which already includes platform, event, and pixel_id)
-        return `<span class="universal-highlight ${platformClass}">${data.highlight_info.highlight_text}</span>`;
-    }
+    // // Check if we have highlighting info with pre-formatted text
+    // if (data.highlight_info && data.highlight_info.should_highlight && data.highlight_info.highlight_text) {
+    //     const platformClass = getPlatformHighlightClass(data.platform);
+    //     // Use the pre-formatted highlight text from Python (which already includes platform, event, and pixel_id)
+    //     /return `<span class="universal-highlight ${platformClass}">${data.highlight_info.highlight_text}</span>`;
+    // }
 
     // Fallback to manual formatting
     let pixelId = '';
@@ -714,7 +714,48 @@ function getMarketingPixelSummary(data, event) {
         pixelId = ` <span class="pixel-id universal-highlight ${platformClass}">${data.pixel_id}</span>`;
     }
 
-    return `<span class="platform-name">${platform}</span> <b class="event-name">${event}</b>${pixelId}`;
+    const gcs = data.gcs ? ` <span class="gcs-param">GCS: ${data.gcs}</span>` : '';
+    
+    // Add Extra Info if available
+    let extraInfo = '';
+    if (data.extra_info && Array.isArray(data.extra_info) && data.extra_info.length > 0) {
+        const extraInfoText = data.extra_info.join(', ');
+        extraInfo = ` <span class="extra-info">(${extraInfoText})</span>`;
+    }
+    
+    // Add platform-specific tracking parameters
+    let clickIds = '';
+    const platformTrackingParamMap = {
+        'GA4': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+        'Google Ads': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+        'DoubleClick': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+        'Facebook': ['fbc', 'fbp', '_fbc', '_fbp'],
+        'TikTok': ['ttclid', 'ttp'],
+        'Microsoft/Bing': ['msclkid'],
+        'Pinterest': ['pinclid'],
+        'LinkedIn': ['liclid'],
+        'Twitter/X': ['twclid'],
+        'Snapchat': ['scclid']
+    };
+    
+    const platformClickIds = platformTrackingParamMap[platform];
+    if (platformClickIds) {
+        const foundClickIds = [];
+        for (const paramName of platformClickIds) {
+            const value = data[paramName] || data.mapped_data?.[paramName] || data.metadata?.raw_data?.[paramName];
+            if (value && value.toString().trim() !== '') {
+                foundClickIds.push(`<span class="click-id">${paramName}: ${value.substring(0, 12)}${value.length > 12 ? '...' : ''}</span>`);
+            } else {
+                foundClickIds.push(`<span class="click-id-missing"><s>${paramName}</s></span>`);
+            }
+        }
+        
+        if (foundClickIds.length > 0) {
+            clickIds = ` ${foundClickIds.join(' ')}`;
+        }
+    }
+    
+    return `<span class="platform-name">${platform}</span> <b class="event-name">${event}</b>${pixelId}${gcs}${extraInfo}${clickIds}`;
 }
 
 // ===== MESSAGE HANDLING =====
@@ -723,7 +764,10 @@ const messageHandlers = {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
         const requestHost = logEntry.metadata?.request_url ? new URL(logEntry.metadata.request_url).host : 'Unknown Host';
-        const summary = `Custom Tracking (Host: ${requestHost})`;
+        const event_name = logEntry.metadata?.raw_data?.event || event || 'Custom Event';
+
+        const platform = 'Custom Platform';
+        const summary = `<span class="platform-name">${platform}</span> <b class="event-name">${event_name}</b> (Host: ${requestHost})`;   
         const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.debug_info);
         renderMessage(summary, data.platform, icon, true, false, details);
     },
@@ -734,6 +778,7 @@ const messageHandlers = {
         const { data } = logEntry;
         const icon = '🍪';
         const confidence = data.confidence || 0;
+
         const reasons = data.reasons || [];
 
         // Color-code based on confidence
@@ -759,6 +804,62 @@ Page URL: ${data.page_url || 'Unknown'}
 Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`;
 
         renderMessage(summary, 'cookie_banner', icon, true, false, details);
+    },
+
+    'spa_pageview': (logEntry) => {
+        const { event, data } = logEntry;
+        const icon = '🌐';
+        
+        const navigationTypes = {
+            'pushState': '➡️ Push State',
+            'replaceState': '🔄 Replace State', 
+            'popstate': '⬅️ Back/Forward',
+            'hashchange': '#️⃣ Hash Change',
+            'path_change': '📍 Path Change',
+            'url_change': '🔗 URL Change'
+        };
+        
+        const navigationIcon = data.navigation_type === 'popstate' ? '⬅️' : 
+                             data.navigation_type === 'hashchange' ? '#️⃣' : '➡️';
+        
+        const navTypeDisplay = navigationTypes[data.navigation_type] || data.navigation_type;
+        
+        // Extract meaningful URL parts for display
+        const fromUrl = data.from_url || data.previous_page || 'Unknown';
+        const toUrl = data.to_url || data.page_location || data.url || 'Unknown';
+        
+        // Create shortened URLs for display (show path + hash)
+        const getDisplayUrl = (url) => {
+            if (!url || url === 'Unknown' || url === 'None') return url;
+            try {
+                const urlObj = new URL(url);
+                return urlObj.pathname + urlObj.search + urlObj.hash;
+            } catch {
+                return url.length > 50 ? url.substring(0, 47) + '...' : url;
+            }
+        };
+        
+        const fromDisplay = getDisplayUrl(fromUrl);
+        const toDisplay = getDisplayUrl(toUrl);
+        
+        const summary = `${navigationIcon} <b>SPA Navigation</b> - ${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
+        
+        const details = `SPA Page View:
+Navigation Type: ${data.navigation_type}
+Page Location: ${data.page_location}
+Page Path: ${data.page_path}
+Page Title: ${data.page_title || 'No title'}
+Previous Page: ${data.previous_page || 'None'}
+Hash: ${data.hash || 'None'}
+Search: ${data.search || 'None'}
+Host: ${data.host}
+Referrer: ${data.referrer || 'None'}
+User Agent: ${data.user_agent}
+Detection Method: ${logEntry.metadata?.detection_method || 'unknown'}
+Timestamp: ${new Date(data.timestamp).toLocaleString()}`;
+
+        // Add URL change separator style for better visibility
+        renderMessage(summary, 'spa_navigation', icon, true, true, details, 'url-change-separator');
     },
 
     'cookie_banner_summary': (logEntry) => {
@@ -999,8 +1100,8 @@ function updateRequestStatus(data) {
     }
 
     if (targetMessage) {
-        // Show status icon when request failed OR add response info for successful JavaScript endpoints
-        const hasResponseInfo = data.response_type || data.response_size;
+        // Show status icon when request failed OR add response info for successful requests with response data
+        const hasResponseInfo = data.response_type || data.response_size || data.content_type || data.response_time || data.status_code;
 
         if (!data.success) {
             const statusIcon = '❌';
@@ -1025,16 +1126,35 @@ function updateRequestStatus(data) {
                         if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
                         if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
 
-                        // Add response information (JavaScript detection, size, etc.)
+                        // Add comprehensive response information
                         if (data.response_type) {
                             statusInfo += `\nResponse Type: ${data.response_type}`;
                         }
                         if (data.response_size) {
                             statusInfo += `\nResponse Size: ${data.response_size}`;
                         }
+                        if (data.content_type) {
+                            statusInfo += `\nContent Type: ${data.content_type}`;
+                        }
+                        if (data.response_time) {
+                            statusInfo += `\nResponse Time: ${data.response_time}`;
+                        }
+                        if (data.cache_control) {
+                            statusInfo += `\nCache Control: ${data.cache_control}`;
+                        }
+                        if (data.etag) {
+                            statusInfo += `\nETag: ${data.etag}`;
+                        }
 
                         // Debug: log the data to see what we're getting
                         console.log('Request status data:', data);
+                        console.log('Response info availability:', {
+                            response_type: !!data.response_type,
+                            response_size: !!data.response_size,
+                            content_type: !!data.content_type,
+                            response_time: !!data.response_time,
+                            status_code: !!data.status_code
+                        });
 
                         detailsEl.textContent += statusInfo;
                     }
@@ -1045,13 +1165,27 @@ function updateRequestStatus(data) {
             const detailsEl = targetMessage.querySelector('.message-details');
             if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
                 let responseInfo = `\n\n--- Response Info ---`;
+                
+                responseInfo += `\nStatus: ${data.status_code} (Success)`;
+                
                 if (data.response_type) {
                     responseInfo += `\nResponse Type: ${data.response_type}`;
                 }
                 if (data.response_size) {
                     responseInfo += `\nResponse Size: ${data.response_size}`;
                 }
-                responseInfo += `\nStatus: ${data.status_code} (Success)`;
+                if (data.content_type) {
+                    responseInfo += `\nContent Type: ${data.content_type}`;
+                }
+                if (data.response_time) {
+                    responseInfo += `\nResponse Time: ${data.response_time}`;
+                }
+                if (data.cache_control) {
+                    responseInfo += `\nCache Control: ${data.cache_control}`;
+                }
+                if (data.etag) {
+                    responseInfo += `\nETag: ${data.etag}`;
+                }
 
                 detailsEl.textContent += responseInfo;
             }
