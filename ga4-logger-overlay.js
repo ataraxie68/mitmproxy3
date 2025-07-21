@@ -516,7 +516,7 @@ function prettyPrintDetailsRaw(metadata, data = null) {
 
 function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
     let out = '';
-    const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp'];
+    const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp', 'request_hash'];
 
     if (isDataLayer) {
         out += formatDataLayerDetails(data);
@@ -758,17 +758,34 @@ function getMarketingPixelSummary(data, event) {
     return `<span class="platform-name">${platform}</span> <b class="event-name">${event}</b>${pixelId}${gcs}${extraInfo}${clickIds}`;
 }
 
+// ===== SHARED HELPER FUNCTIONS =====
+function getConfidenceColor(confidence) {
+    if (confidence >= 80) return '#22c55e'; // green
+    else if (confidence >= 60) return '#f59e0b'; // yellow
+    else if (confidence >= 40) return '#ef4444'; // red
+    return '#6b7280'; // gray
+}
+
 // ===== MESSAGE HANDLING =====
 const messageHandlers = {
     'custom_tracking': (logEntry) => {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
         const requestHost = logEntry.metadata?.request_url ? new URL(logEntry.metadata.request_url).host : 'Unknown Host';
+        const requestPath = logEntry.metadata?.request_path || '/';
         const event_name = logEntry.metadata?.raw_data?.event || event || 'Custom Event';
+        const action = logEntry.metadata?.raw_data?.action || data.action;
 
-        const platform = 'Custom Platform';
-        const summary = `<span class="platform-name">${platform}</span> <b class="event-name">${event_name}</b> (Host: ${requestHost})`;   
-        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.debug_info);
+        const actionText = action ? ` - <span class="action">${action}</span>` : '';
+        const summary = `<span class="platform-name">Custom Platform</span> <b class="event-name">${event_name}</b>${actionText} (${requestHost}) <code>${requestPath}</code>`;
+        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false);
+        
+        // Debug: Check if metadata contains request_url
+        if (window.DEBUG_CUSTOM_TRACKING && logEntry.metadata) {
+            console.log('Custom tracking metadata:', logEntry.metadata);
+            console.log('Request URL in metadata:', logEntry.metadata.request_url);
+        }
+        
         renderMessage(summary, data.platform, icon, true, false, details);
     },
 
@@ -778,14 +795,8 @@ const messageHandlers = {
         const { data } = logEntry;
         const icon = '🍪';
         const confidence = data.confidence || 0;
-
         const reasons = data.reasons || [];
-
-        // Color-code based on confidence
-        let confidenceColor = '#6b7280'; // gray
-        if (confidence >= 80) confidenceColor = '#22c55e'; // green
-        else if (confidence >= 60) confidenceColor = '#f59e0b'; // yellow
-        else if (confidence >= 40) confidenceColor = '#ef4444'; // red
+        const confidenceColor = getConfidenceColor(confidence);
 
         const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span>`;
 
@@ -793,15 +804,17 @@ const messageHandlers = {
         const position = data.position || {};
         const styling = data.styling || {};
 
-        const details = `Cookie Banner Analysis:
-Confidence: ${confidence}% (${reasons.join(', ')})
-Element: ${elementInfo.tagName || 'Unknown'} ${elementInfo.id ? `#${elementInfo.id}` : ''} ${elementInfo.className ? `.${elementInfo.className}` : ''}
-Position: ${Math.round(position.left || 0)}, ${Math.round(position.top || 0)} (${Math.round(position.width || 0)}×${Math.round(position.height || 0)})
-Styling: ${styling.position || 'static'}, z-index: ${styling.zIndex || 'auto'}
-Text Length: ${elementInfo.textLength || 0} characters
-Text Snippet: "${data.text_snippet || 'No text'}"
-Page URL: ${data.page_url || 'Unknown'}
-Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`;
+        const details = [
+            'Cookie Banner Analysis:',
+            `Confidence: ${confidence}% (${reasons.join(', ')})`,
+            `Element: ${elementInfo.tagName || 'Unknown'} ${elementInfo.id ? `#${elementInfo.id}` : ''} ${elementInfo.className ? `.${elementInfo.className}` : ''}`,
+            `Position: ${Math.round(position.left || 0)}, ${Math.round(position.top || 0)} (${Math.round(position.width || 0)}×${Math.round(position.height || 0)})`,
+            `Styling: ${styling.position || 'static'}, z-index: ${styling.zIndex || 'auto'}`,
+            `Text Length: ${elementInfo.textLength || 0} characters`,
+            `Text Snippet: "${data.text_snippet || 'No text'}"`,
+            `Page URL: ${data.page_url || 'Unknown'}`,
+            `Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`
+        ].join('\n');
 
         renderMessage(summary, 'cookie_banner', icon, true, false, details);
     },
@@ -844,19 +857,21 @@ Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`;
         
         const summary = `${navigationIcon} <b>SPA Navigation</b> - ${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
         
-        const details = `SPA Page View:
-Navigation Type: ${data.navigation_type}
-Page Location: ${data.page_location}
-Page Path: ${data.page_path}
-Page Title: ${data.page_title || 'No title'}
-Previous Page: ${data.previous_page || 'None'}
-Hash: ${data.hash || 'None'}
-Search: ${data.search || 'None'}
-Host: ${data.host}
-Referrer: ${data.referrer || 'None'}
-User Agent: ${data.user_agent}
-Detection Method: ${logEntry.metadata?.detection_method || 'unknown'}
-Timestamp: ${new Date(data.timestamp).toLocaleString()}`;
+        const details = [
+            'SPA Page View:',
+            `Navigation Type: ${data.navigation_type}`,
+            `Page Location: ${data.page_location}`,
+            `Page Path: ${data.page_path}`,
+            `Page Title: ${data.page_title || 'No title'}`,
+            `Previous Page: ${data.previous_page || 'None'}`,
+            `Hash: ${data.hash || 'None'}`,
+            `Search: ${data.search || 'None'}`,
+            `Host: ${data.host}`,
+            `Referrer: ${data.referrer || 'None'}`,
+            `User Agent: ${data.user_agent}`,
+            `Detection Method: ${logEntry.metadata?.detection_method || 'unknown'}`,
+            `Timestamp: ${new Date(data.timestamp).toLocaleString()}`
+        ].join('\n');
 
         // Add URL change separator style for better visibility
         renderMessage(summary, 'spa_navigation', icon, true, true, details, 'url-change-separator');
@@ -867,17 +882,15 @@ Timestamp: ${new Date(data.timestamp).toLocaleString()}`;
         const icon = '📊';
         const totalBanners = data.total_banners || 0;
         const maxConfidence = data.max_confidence || 0;
-
-        let summaryColor = '#6b7280';
-        if (maxConfidence >= 80) summaryColor = '#22c55e';
-        else if (maxConfidence >= 60) summaryColor = '#f59e0b';
-        else if (maxConfidence >= 40) summaryColor = '#ef4444';
+        const summaryColor = getConfidenceColor(maxConfidence);
 
         const summary = `<b>Banner Detection Summary</b> - <span style="color: ${summaryColor};">${totalBanners} banner(s) found</span>`;
-        const details = `Detection Summary:
-Total Banners Found: ${totalBanners}
-Highest Confidence: ${maxConfidence}%
-Page URL: ${data.page_url || 'Unknown'}`;
+        const details = [
+            'Detection Summary:',
+            `Total Banners Found: ${totalBanners}`,
+            `Highest Confidence: ${maxConfidence}%`,
+            `Page URL: ${data.page_url || 'Unknown'}`
+        ].join('\n');
 
         renderMessage(summary, 'banner_summary', icon, true, false, details);
     },
@@ -964,13 +977,15 @@ Page URL: ${data.page_url || 'Unknown'}`;
             updateConsentStatusHeader();
 
             const summary = `<span style="color: #dc2626; font-weight: bold;">🚫 USER CONSENT DECLINED</span>`;
-            const details = `Consent Status: DECLINED
-All Categories Denied: ${data.all_categories_denied ? 'Yes' : 'No'}
-Categories: ${Object.keys(data.categories || {}).join(', ')}
-Timestamp: ${consentStatus.timestamp}
-
-Full Data:
-${JSON.stringify(data, null, 2)}`;
+            const details = [
+                'Consent Status: DECLINED',
+                `All Categories Denied: ${data.all_categories_denied ? 'Yes' : 'No'}`,
+                `Categories: ${Object.keys(data.categories || {}).join(', ')}`,
+                `Timestamp: ${consentStatus.timestamp}`,
+                '',
+                'Full Data:',
+                JSON.stringify(data, null, 2)
+            ].join('\n');
             renderMessage(summary, 'consent', icon, true, false, details);
 
         } else if (event === 'user_consent_given' || event === 'user_consent_accepted') {
@@ -980,15 +995,17 @@ ${JSON.stringify(data, null, 2)}`;
             updateConsentStatusHeader();
 
             const summary = `<span style="color: #15803d; font-weight: bold;">✅ USER CONSENT ${event === 'user_consent_given' ? 'GIVEN' : 'ACCEPTED'}</span>`;
-            const details = `Consent Status: ACCEPTED
-Consent Type: ${data.consent_type || 'Unknown'}
-Button Text: "${data.button_text || 'Unknown'}"
-Granted Categories: ${(data.granted_categories || []).join(', ') || 'None specified'}
-Denied Categories: ${(data.denied_categories || []).join(', ') || 'None specified'}
-Timestamp: ${consentStatus.timestamp}
-
-Full Data:
-${JSON.stringify(data, null, 2)}`;
+            const details = [
+                'Consent Status: ACCEPTED',
+                `Consent Type: ${data.consent_type || 'Unknown'}`,
+                `Button Text: "${data.button_text || 'Unknown'}"`,
+                `Granted Categories: ${(data.granted_categories || []).join(', ') || 'None specified'}`,
+                `Denied Categories: ${(data.denied_categories || []).join(', ') || 'None specified'}`,
+                `Timestamp: ${consentStatus.timestamp}`,
+                '',
+                'Full Data:',
+                JSON.stringify(data, null, 2)
+            ].join('\n');
             renderMessage(summary, 'consent', icon, true, false, details);
 
         } else {
@@ -1056,144 +1073,120 @@ function handleStructuredLog(logEntry) {
     }
 }
 
+// ===== RESPONSE STATUS HELPERS =====
+function hasResponseInfo(data) {
+    return !!(data.response_type || data.response_size || data.content_type || data.response_time || data.status_code);
+}
+
+function hasStatusIcon(messageText) {
+    return messageText.includes('✅') || messageText.includes('❌');
+}
+
+function formatResponseInfo(data, isError = false) {
+    const responseFields = [
+        { key: 'response_type', label: 'Response Type' },
+        { key: 'response_size', label: 'Response Size' },
+        { key: 'content_type', label: 'Content Type' },
+        { key: 'response_time', label: 'Response Time' },
+        { key: 'cache_control', label: 'Cache Control' },
+        { key: 'etag', label: 'ETag' }
+    ];
+
+    let info = '';
+    for (const field of responseFields) {
+        if (data[field.key]) {
+            info += `\n${field.label}: ${data[field.key]}`;
+        }
+    }
+    return info;
+}
+
+function findMessageByHash(messages, hash) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const detailsEl = msg.querySelector('.message-details');
+        if (!detailsEl) continue;
+
+        const messageHash = detailsEl.textContent.match(/request_hash[":]\s*([a-f0-9]{12})/i)?.[1];
+        const isNotStatusMessage = !hasStatusIcon(msg.querySelector('.message-text')?.textContent || '');
+
+        if (messageHash === hash && isNotStatusMessage) {
+            return msg;
+        }
+    }
+    return null;
+}
+
+function findMessageByPlatform(messages, platform) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const messageType = msg.getAttribute('data-type');
+        const messageText = msg.querySelector('.message-text')?.textContent || '';
+
+        const isExactPlatformMatch = messageType.toLowerCase() === platform.toLowerCase();
+        const isErrorFromPlatform = messageType.toLowerCase() === 'error' &&
+            messageText.toLowerCase().includes(platform.toLowerCase());
+        const isNotStatusMessage = !messageText.includes('Request') && !hasStatusIcon(messageText);
+
+        if ((isExactPlatformMatch || isErrorFromPlatform) && isNotStatusMessage) {
+            return msg;
+        }
+    }
+    return null;
+}
+
+function findTargetMessage(messages, data) {
+    // Try hash-based matching first
+    if (data.request_hash) {
+        const hashMatch = findMessageByHash(messages, data.request_hash);
+        if (hashMatch) return hashMatch;
+    }
+    
+    // Fallback to platform-based matching
+    return findMessageByPlatform(messages, data.platform);
+}
+
 function updateRequestStatus(data) {
     const messages = DOM.content.querySelectorAll('.message');
-    let targetMessage = null;
+    const targetMessage = findTargetMessage(messages, data);
 
-    // NEW: Hash-based matching for perfect accuracy
-    if (data.request_hash) {
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            const detailsEl = msg.querySelector('.message-details');
-            if (!detailsEl) continue;
+    if (!targetMessage) return;
 
-            // Extract hash from message details (it's stored in request_hash field)
-            const messageHash = detailsEl.textContent.match(/request_hash[":]\s*([a-f0-9]{12})/i)?.[1];
-            const isNotStatusMessage = !msg.querySelector('.message-text')?.textContent.includes('✅') &&
-                !msg.querySelector('.message-text')?.textContent.includes('❌');
+    const messageTextEl = targetMessage.querySelector('.message-text');
+    const detailsEl = targetMessage.querySelector('.message-details');
 
-            if (messageHash === data.request_hash && isNotStatusMessage) {
-                targetMessage = msg;
-                break; // Perfect hash match - stop searching
-            }
-        }
-    }
+    if (!data.success) {
+        // Handle failed requests
+        if (messageTextEl && !hasStatusIcon(messageTextEl.textContent)) {
+            messageTextEl.innerHTML += ` ❌`;
 
-    // FALLBACK: Platform-based matching if hash not found or no hash available
-    if (!targetMessage) {
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            const messageType = msg.getAttribute('data-type');
-            const messageText = msg.querySelector('.message-text')?.textContent || '';
-
-            // Match marketing pixel events OR error messages from the same platform
-            const isExactPlatformMatch = messageType.toLowerCase() === data.platform.toLowerCase();
-            const isErrorFromPlatform = messageType.toLowerCase() === 'error' &&
-                messageText.toLowerCase().includes(data.platform.toLowerCase());
-            const isNotStatusMessage = !messageText.includes('Request') && !messageText.includes('✅') && !messageText.includes('❌');
-
-            if ((isExactPlatformMatch || isErrorFromPlatform) && isNotStatusMessage) {
-                targetMessage = msg;
-                break; // Platform fallback match
-            }
-        }
-    }
-
-    if (targetMessage) {
-        // Show status icon when request failed OR add response info for successful requests with response data
-        const hasResponseInfo = data.response_type || data.response_size || data.content_type || data.response_time || data.status_code;
-
-        if (!data.success) {
-            const statusIcon = '❌';
-            const messageTextEl = targetMessage.querySelector('.message-text');
-            if (messageTextEl) {
-                // Only add status if it doesn't already have one
-                if (!messageTextEl.textContent.includes('✅') && !messageTextEl.textContent.includes('❌')) {
-                    messageTextEl.innerHTML += ` ${statusIcon}`;
-
-                    // Add detailed error info to details
-                    const detailsEl = targetMessage.querySelector('.message-details');
-                    if (detailsEl) {
-                        let statusInfo = `\n\n--- Request Failed ---\nStatus: ${data.status_code || 'Unknown'}`;
-                        if (data.method) statusInfo += `\nMethod: ${data.method}`;
-
-                        // Ensure the complete request URL is displayed
-                        const requestUrl = data.request_url || data.url;
-                        if (requestUrl) {
-                            statusInfo += `\nRequest URL:\n${requestUrl}`;
-                        }
-
-                        if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
-                        if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
-
-                        // Add comprehensive response information
-                        if (data.response_type) {
-                            statusInfo += `\nResponse Type: ${data.response_type}`;
-                        }
-                        if (data.response_size) {
-                            statusInfo += `\nResponse Size: ${data.response_size}`;
-                        }
-                        if (data.content_type) {
-                            statusInfo += `\nContent Type: ${data.content_type}`;
-                        }
-                        if (data.response_time) {
-                            statusInfo += `\nResponse Time: ${data.response_time}`;
-                        }
-                        if (data.cache_control) {
-                            statusInfo += `\nCache Control: ${data.cache_control}`;
-                        }
-                        if (data.etag) {
-                            statusInfo += `\nETag: ${data.etag}`;
-                        }
-
-                        // Debug: log the data to see what we're getting
-                        console.log('Request status data:', data);
-                        console.log('Response info availability:', {
-                            response_type: !!data.response_type,
-                            response_size: !!data.response_size,
-                            content_type: !!data.content_type,
-                            response_time: !!data.response_time,
-                            status_code: !!data.status_code
-                        });
-
-                        detailsEl.textContent += statusInfo;
-                    }
-                }
-            }
-        } else if (hasResponseInfo) {
-            // For successful requests with response info (like JavaScript endpoints), add details without icon
-            const detailsEl = targetMessage.querySelector('.message-details');
-            if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
-                let responseInfo = `\n\n--- Response Info ---`;
+            if (detailsEl) {
+                let statusInfo = `\n\n--- Request Failed ---\nStatus: ${data.status_code || 'Unknown'}`;
+                if (data.method) statusInfo += `\nMethod: ${data.method}`;
                 
-                responseInfo += `\nStatus: ${data.status_code} (Success)`;
+                const requestUrl = data.request_url || data.url;
+                if (requestUrl) statusInfo += `\nRequest URL:\n${requestUrl}`;
                 
-                if (data.response_type) {
-                    responseInfo += `\nResponse Type: ${data.response_type}`;
+                if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
+                if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
+                
+                statusInfo += formatResponseInfo(data, true);
+                
+                if (window.DEBUG_RESPONSE_STATUS) {
+                    console.log('Request status data:', data);
                 }
-                if (data.response_size) {
-                    responseInfo += `\nResponse Size: ${data.response_size}`;
-                }
-                if (data.content_type) {
-                    responseInfo += `\nContent Type: ${data.content_type}`;
-                }
-                if (data.response_time) {
-                    responseInfo += `\nResponse Time: ${data.response_time}`;
-                }
-                if (data.cache_control) {
-                    responseInfo += `\nCache Control: ${data.cache_control}`;
-                }
-                if (data.etag) {
-                    responseInfo += `\nETag: ${data.etag}`;
-                }
-
-                detailsEl.textContent += responseInfo;
+                
+                detailsEl.textContent += statusInfo;
             }
         }
-        // Other successful requests remain silent
+    } else if (hasResponseInfo(data)) {
+        // Handle successful requests with response info
+        if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
+            let responseInfo = `\n\n--- Response Info ---\nStatus: ${data.status_code} (Success)`;
+            responseInfo += formatResponseInfo(data, false);
+            detailsEl.textContent += responseInfo;
+        }
     }
-    // If no matching message found, don't create a separate status message
-    // This prevents the "Privacy Sandbox Request Success" separate lines
 }
 
 function handleLegacyMessage(message, type = 'info') {

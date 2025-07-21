@@ -674,12 +674,12 @@
         "consentcdn.cookiebot.com", "consent.cookiebot.com", "sdk.privacy-center.org",
         "consentmanager.mgr.consensu.org", "delivery.consentmanager.net",
         "cdn.iubenda.com", "cdn.iubenda.eu", "cs.iubenda.com",
-        "cookie-script.com", "cdn.cookie-script.com",
+        "cookie-script.com", "cdn.cookie-script.com", "consent.cookie-script.com",
         "www.quantcast.com", "quantcast.mgr.consensu.org", "cmp.quantcast.com",
         "trustarcportal.blob.core.windows.net", "consent-pref.trustarc.com", "consent.trustarc.com"
       ],
       "paths": [
-        "/browser-ui/", "/api/", "/latest/", "/settings/", "/consent/",
+        "/browser-ui/", "/api/", "/latest/", "/settings/", "/consent/", "/analytics/",
         "/otnotice/", "/consent/", "/common/", "/scripttemplates/", "/groups/",
         "/uc.js", "/cc.js", "/consentmanager.js", "/cs.js", "/choice.js",
         "/cmp.js", "/privacy-notice/", "/cookie-policy/"
@@ -696,7 +696,11 @@
         "consentId": "consent_id",
         "domainId": "domain_id",
         "websiteId": "website_id",
-        "cbid": "cookiebot_id"
+        "cbid": "cookiebot_id",
+        "action": "consent_action",
+        "time": "timestamp",
+        "script": "script_id",
+        "category": "consent_category"
       },
       "pixelIdKey": "settingsId",
       "eventNameKey": "action", 
