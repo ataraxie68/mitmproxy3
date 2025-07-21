@@ -85,7 +85,11 @@
         "gdpr_consent": "gdpr_consent_string",
         "npa": "non_personalized_ads",
         "dma": "data_management_agreement",
-        "dma_cps": "dma_consent_purposes"
+        "dma_cps": "dma_consent_purposes",
+        "gclid": "gclid",
+        "dclid": "dclid",
+        "wbraid": "wbraid",
+        "gbraid": "gbraid"
       },
       "pixelIdKey": "tid",
       "eventNameKey": "en",
@@ -116,7 +120,12 @@
         "if": "iframe",
         "ts": "timestamp",
         "sw": "screen_width",
-        "sh": "screen_height"
+        "sh": "screen_height",
+        "fbclid": "fbclid",
+        "fbc": "fbc",
+        "fbp": "fbp",
+        "_fbc": "_fbc",
+        "_fbp": "_fbp"
       },
       "pixelIdKey": "id",
       "eventNameKey": "ev",
@@ -141,7 +150,9 @@
         "content_type": "content_type",
         "content_name": "content_name",
         "description": "description",
-        "query": "search_term"
+        "query": "search_term",
+        "ttclid": "ttclid",
+        "ttp": "ttp"
       },
       "pixelIdKey": "pixel_code",
       "eventNameKey": "event",
@@ -190,7 +201,10 @@
         "gclid": "gclid",
         "tid": "conversion_id",
         "gtm": "gtm_id",
-        "ord": "order_id"
+        "ord": "order_id",
+        "dclid": "dclid",
+        "wbraid": "wbraid",
+        "gbraid": "gbraid"
       },
       "pixelIdKey": "tid",
       "eventNameKey": "label",
@@ -331,7 +345,7 @@
         "gv": "goal_value",
         "gc": "goal_currency",
         "p": "page_url",
-        "rn": "revenue"
+        "msclkid": "msclkid"
       },
       "pixelIdKey": "ti",
       "eventNameKey": "evt",
@@ -602,8 +616,28 @@
         "highlightClass": "universal-highlight-privacy-sandbox"
       }
     },
+    "Google Tag Manager": {
+      "name": "Google Tag Manager",
+      "hosts": ["www.googletagmanager.com", "googletagmanager.com"],
+      "paths": ["/gtm.js", "/gtag/js"],
+      "paramMap": {
+        "id": "container_id",
+        "l": "data_layer",
+        "gtm_auth": "environment_auth",
+        "gtm_preview": "preview_mode",
+        "gtm_cookies_win": "cookies_win"
+      },
+      "pixelIdKey": "id",
+      "eventNameKey": "container_load",
+      "description": "Google Tag Manager - Container script loading and configuration.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-code brand-icon icon-gtm\"></i>",
+        "color": "#4285F4",
+        "highlightClass": "universal-highlight-gtm"
+      }
+    },
     "Google Consent Collection": {
-      "name": "Google Consent Collection",
+      "name": "Google Consent Collection", 
       "hosts": ["www.google.com", "google.com", "www.googletagmanager.com", "googletagmanager.com"],
       "paths": ["/ccm/collect"],
       "paramMap": {
@@ -630,6 +664,47 @@
         "icon": "<i class=\"fa-solid fa-shield-halved brand-icon icon-consent\"></i>",
         "color": "#34A853",
         "highlightClass": "universal-highlight-consent"
+      }
+    },
+    "Consent Management Platform": {
+      "name": "Consent Management Platform",
+      "hosts": [
+        "app.usercentrics.eu", "api.usercentrics.eu", "privacy-proxy.usercentrics.eu", "consent.usercentrics.eu",
+        "cdn.cookielaw.org", "optanon.blob.core.windows.net", "geolocation.onetrust.com", "privacyportal-cdn.onetrust.com",
+        "consentcdn.cookiebot.com", "consent.cookiebot.com", "sdk.privacy-center.org",
+        "consentmanager.mgr.consensu.org", "delivery.consentmanager.net",
+        "cdn.iubenda.com", "cdn.iubenda.eu", "cs.iubenda.com",
+        "cookie-script.com", "cdn.cookie-script.com",
+        "www.quantcast.com", "quantcast.mgr.consensu.org", "cmp.quantcast.com",
+        "trustarcportal.blob.core.windows.net", "consent-pref.trustarc.com", "consent.trustarc.com"
+      ],
+      "paths": [
+        "/browser-ui/", "/api/", "/latest/", "/settings/", "/consent/",
+        "/otnotice/", "/consent/", "/common/", "/scripttemplates/", "/groups/",
+        "/uc.js", "/cc.js", "/consentmanager.js", "/cs.js", "/choice.js",
+        "/cmp.js", "/privacy-notice/", "/cookie-policy/"
+      ],
+      "paramMap": {
+        "settingsId": "settings_id",
+        "version": "version", 
+        "language": "language",
+        "consent": "consent_data",
+        "services": "services",
+        "controllerId": "controller_id",
+        "optanonGroupId": "group_id",
+        "geolocation": "location",
+        "consentId": "consent_id",
+        "domainId": "domain_id",
+        "websiteId": "website_id",
+        "cbid": "cookiebot_id"
+      },
+      "pixelIdKey": "settingsId",
+      "eventNameKey": "action", 
+      "description": "Consent Management Platform - GDPR/CCPA compliance tools for cookie consent and privacy management.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-shield-check brand-icon icon-cmp\"></i>",
+        "color": "#00B8D4",
+        "highlightClass": "universal-highlight-cmp"
       }
     },
     "Custom Tracking": {

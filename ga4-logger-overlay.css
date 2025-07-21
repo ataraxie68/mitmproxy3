@@ -321,9 +321,9 @@ body::before {
 
 /* Platform-specific universal highlighting */
 .universal-highlight-ga4 {
-    background-color: rgba(234, 67, 53, 0.125);
-    border: 1px solid rgba(234, 67, 53, 0.375);
-    color: #EA4335;
+    background-color: rgba(255, 143, 0, 0.125);
+    border: 1px solid rgba(255, 143, 0, 0.375);
+    color: #FF8F00;
 }
 
 .universal-highlight-facebook {
@@ -417,15 +417,50 @@ body::before {
 }
 
 .universal-highlight-sgtm {
-    background-color: rgba(234, 67, 53, 0.125);
-    border: 1px solid rgba(234, 67, 53, 0.375);
-    color: #EA4335;
+    background-color: rgba(255, 143, 0, 0.125);
+    border: 1px solid rgba(255, 143, 0, 0.375);
+    color: #FF8F00;
 }
 
 .universal-highlight-privacy-sandbox {
     background-color: rgba(52, 168, 83, 0.125);
     border: 1px solid rgba(52, 168, 83, 0.375);
     color: #34A853;
+}
+
+/* Extra info styling */
+.extra-info {
+    color: #666;
+    font-size: 0.9em;
+    font-weight: normal;
+    opacity: 0.8;
+}
+
+/* Click ID styling */
+.click-id {
+    color: #22c55e;
+    font-size: 0.85em;
+    font-weight: 500;
+    margin: 0 2px;
+}
+
+.click-id-missing {
+    color: #6c757d;
+    font-size: 0.85em;
+    opacity: 0.6;
+    margin: 0 2px;
+}
+
+.universal-highlight-cmp {
+    background-color: rgba(0, 184, 212, 0.125);
+    border: 1px solid rgba(0, 184, 212, 0.375);
+    color: #00B8D4;
+}
+
+.universal-highlight-gtm {
+    background-color: rgba(66, 133, 244, 0.125);
+    border: 1px solid rgba(66, 133, 244, 0.375);
+    color: #4285F4;
 }
 
 .universal-highlight-default {
