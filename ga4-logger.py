@@ -1809,6 +1809,20 @@ class UnifiedResponseProcessor:
         """Process response for tracking status and cookie monitoring"""
         host = flow.request.pretty_host
         path = flow.request.path
+        
+        # Fast path exclusion for static assets - same as request processing
+        if (path.lower().endswith(('.js', '.html', '.css', '.js.map', '.css.map', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot')) or 
+            '/js' in path or 
+            '/css' in path or
+            '/assets' in path or
+            '/static' in path or
+            '/wp-content' in path or
+            '/c/j' in path or 
+            '/s/' in path):
+            # Still process cookies for static assets from target domain
+            self._handle_cookie_setting(flow)
+            return
+        
         platform = self.platform_detector.detect_platform(host, path, flow)
         
         # Debug logging
@@ -2037,10 +2051,14 @@ class UnifiedRequestProcessor:
     
     def process_request(self, flow: http.HTTPFlow) -> None:
         """Unified request processing for all HTTP methods"""
-        # Fast path exclusion for non-relevant files and JavaScript endpoints
+        # Fast path exclusion for non-relevant files and static assets
         path = flow.request.path
-        if (path.lower().endswith(('.js', '.html')) or 
+        if (path.lower().endswith(('.js', '.html', '.css', '.js.map', '.css.map', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot')) or 
             '/js' in path or 
+            '/css' in path or
+            '/assets' in path or
+            '/static' in path or
+            '/wp-content' in path or
             '/c/j' in path or 
             '/s/' in path):
             return
