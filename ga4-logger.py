@@ -1574,6 +1574,8 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
     
     # Handle validation errors and unknown requests
     if event_name == "Unknown" and not pixel_id:
+        # Generate unique hash for request/response matching
+        request_hash = _generate_request_hash(request_url or "", post_data)
    
         # Standardized error event data structure
         error_event_data = {
@@ -1581,6 +1583,7 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
             "pixel_id": "",  # Empty since missing
             "event_type": "",
             "message": f"Missing {platform} event name and pixel ID",
+            "request_hash": request_hash  # Add hash for response matching
         }
         # Filter out internal request metadata from raw_data
         clean_data = {k: v for k, v in data.items() if not k.startswith('_request_')}
@@ -1730,128 +1733,156 @@ class UnifiedResponseProcessor:
         self.platform_detector = platform_detector
         self.logger = unified_logger
     
-    def process_response(self, flow: http.HTTPFlow) -> None:
-        """Process response for tracking status and cookie monitoring"""
-        # Process responses for ALL requests that are handled on the request side
-        host = flow.request.pretty_host
-        path = flow.request.path
-        platform = self.platform_detector.detect_platform(host, path, flow)
-        
-        # Check if this request was processed on the request side (any recognized platform)
-        if platform != "Custom Tracking":
-            # Debug logging for response handling
-            if DEBUG_MODE:
-                is_tracking = is_tracking_request(flow)
-                unified_logger.log_debug(f"Processing response for {platform} (is_tracking: {is_tracking}, host: {host}, path: {path})")
-            self._handle_tracking_response(flow)
-        
-        # Process cookie setting
-        self._handle_cookie_setting(flow)
+    def _debug_log(self, message: str) -> None:
+        """Debug logging wrapper"""
+        if DEBUG_MODE:
+            unified_logger.log_debug(message)
     
-    def _handle_tracking_response(self, flow: http.HTTPFlow) -> None:
-        """Handle response status for tracking requests"""
-        request_key = f"{flow.request.method}:{flow.request.url}"
-        status_code = flow.response.status_code
-        platform = self.platform_detector.detect_platform(flow.request.pretty_host, flow.request.path, flow)
-        
-        # Generate same hash as request for matching
-        post_data = flow.request.get_text() if flow.request.content else ""
-        request_hash = _generate_request_hash(flow.request.url, post_data)
-        
-        # Detect JavaScript response and build comprehensive response info
+    def _is_success_status(self, status_code: int) -> bool:
+        """Check if status code indicates success"""
+        return status_code in [200, 204, 302]
+    
+    def _is_error_status(self, status_code: int) -> bool:
+        """Check if status code indicates error"""
+        return status_code >= 400
+    
+    def _calculate_response_time(self, flow: http.HTTPFlow) -> str:
+        """Calculate response time with error handling"""
+        try:
+            if (hasattr(flow, 'response') and hasattr(flow.response, 'timestamp_end') and 
+                hasattr(flow.request, 'timestamp_start') and 
+                flow.response.timestamp_end and flow.request.timestamp_start):
+                response_time = (flow.response.timestamp_end - flow.request.timestamp_start) * 1000
+                return f"{response_time:.0f}ms"
+        except (AttributeError, TypeError):
+            pass
+        return ""
+    
+    def _detect_content_type(self, flow: http.HTTPFlow) -> tuple[str, bool]:
+        """Detect content type and if it's JavaScript"""
         content_type = flow.response.headers.get("content-type", "").lower()
         is_javascript = any(js_type in content_type for js_type in ["javascript", "application/js", "text/js"])
+        return content_type, is_javascript
+    
+    def _build_response_info(self, flow: http.HTTPFlow) -> dict:
+        """Build comprehensive response information"""
+        content_type, is_javascript = self._detect_content_type(flow)
+        status_code = flow.response.status_code
         
-        # Build comprehensive response info
         response_info = {
             "response_type": "JavaScript" if is_javascript else "Data",
             "content_type": content_type,
             "status_code": status_code
         }
         
-        # Add response size info
+        # Add response size
         if flow.response.content:
             response_info["response_size"] = f"{len(flow.response.content)} bytes"
         else:
             response_info["response_size"] = "0 bytes"
         
-        # Add response timing if available
-        try:
-            if (hasattr(flow, 'response') and hasattr(flow.response, 'timestamp_end') and 
-                hasattr(flow.request, 'timestamp_start') and 
-                flow.response.timestamp_end and flow.request.timestamp_start):
-                response_time = (flow.response.timestamp_end - flow.request.timestamp_start) * 1000
-                response_info["response_time"] = f"{response_time:.0f}ms"
-        except (AttributeError, TypeError):
-            # Timing calculation failed, skip it
-            pass
+        # Add response timing
+        if response_time := self._calculate_response_time(flow):
+            response_info["response_time"] = response_time
         
-        # Add cache headers if present
-        cache_control = flow.response.headers.get("cache-control", "")
-        if cache_control:
+        # Add cache headers
+        if cache_control := flow.response.headers.get("cache-control"):
             response_info["cache_control"] = cache_control
         
-        # Add other relevant headers
+        # Add etag (truncated if too long)
         if etag := flow.response.headers.get("etag"):
             response_info["etag"] = etag[:20] + "..." if len(etag) > 20 else etag
+        
+        return response_info
+    
+    def _create_response_metadata(self, flow: http.HTTPFlow, response_info: dict = None) -> dict:
+        """Create standardized response metadata"""
+        return {
+            "request_path": flow.request.path,
+            "raw_data": {},
+            "request_url": flow.request.url,
+            "response_headers": dict(flow.response.headers),
+            "response_info": response_info or {}
+        }
+    
+    def process_response(self, flow: http.HTTPFlow) -> None:
+        """Process response for tracking status and cookie monitoring"""
+        host = flow.request.pretty_host
+        path = flow.request.path
+        platform = self.platform_detector.detect_platform(host, path, flow)
+        
+        # Debug logging
+        self._debug_log(f"Processing response for {platform} (host: {host}, path: {path})")
+        
+        # Process tracking response and cookies
+        self._handle_tracking_response(flow, platform)
+        self._handle_cookie_setting(flow)
+    
+    def _handle_tracking_response(self, flow: http.HTTPFlow, platform: str) -> None:
+        """Handle response status for tracking requests"""
+        request_key = f"{flow.request.method}:{flow.request.url}"
+        status_code = flow.response.status_code
+        
+        # Generate request hash for matching
+        post_data = flow.request.get_text() if flow.request.content else ""
+        request_hash = _generate_request_hash(flow.request.url, post_data)
+        
+        # Build response information
+        response_info = self._build_response_info(flow)
+        content_type, is_javascript = self._detect_content_type(flow)
         
         # Handle JavaScript endpoints separately
         if is_javascript:
             self._handle_javascript_response(flow, platform, response_info)
-            # Handle success tracking for JavaScript endpoints too
-            if status_code in [200, 204, 302]:
+            if self._is_success_status(status_code):
                 self._log_successful_request(flow, platform, status_code, request_key)
             return
         
         # Handle different status codes for non-JavaScript responses
-        if status_code >= 400:
+        if self._is_error_status(status_code):
             self._log_failed_request(flow, platform, status_code, request_hash)
-        elif status_code in [200, 204, 302]:
-            # Send single status update to overlay for successful non-JavaScript responses
-            status_data = {
-                "request_url": flow.request.url,
-                "platform": platform,
-                "status_code": status_code,
-                "method": flow.request.method,
-                "success": True,
-                "request_hash": request_hash,  # Hash for matching
-                **response_info
-            }
-            
-            # Create standardized metadata structure
-            metadata = {
-                "request_path": flow.request.path, 
-                "raw_data": {}, 
-                "request_url": flow.request.url,
-                "response_headers": dict(flow.response.headers),
-                "response_info": response_info
-            }
-            self.logger.log_structured("request_status_update", "status_received", status_data, metadata)
-            self._log_successful_request(flow, platform, status_code, request_key)
-            
-            # Debug: Log response info for troubleshooting
-            if DEBUG_MODE:
-                unified_logger.log_debug(f"Response info sent: {response_info} for {flow.request.url}")
+        elif self._is_success_status(status_code):
+            self._log_successful_response(flow, platform, status_code, request_hash, response_info)
+    
+    def _log_successful_response(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str, response_info: dict) -> None:
+        """Log successful non-JavaScript response"""
+        request_key = f"{flow.request.method}:{flow.request.url}"
+        
+        # Create status data for overlay
+        status_data = {
+            "request_url": flow.request.url,
+            "platform": platform,
+            "status_code": status_code,
+            "method": flow.request.method,
+            "success": True,
+            "request_hash": request_hash,
+            **response_info
+        }
+        
+        # Send status update to overlay
+        metadata = self._create_response_metadata(flow, response_info)
+        self.logger.log_structured("request_status_update", "status_received", status_data, metadata)
+        self._log_successful_request(flow, platform, status_code, request_key)
+        
+        # Debug logging
+        self._debug_log(f"Response info sent: {response_info} for {flow.request.url}")
     
     def _log_failed_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str = "") -> None:
         """Log failed tracking request"""
-        self.logger.log_structured("warning", "tracking_request_failed", {
+        error_data = {
             "platform": platform,
             "status_code": status_code,
             "url": flow.request.url,
             "method": flow.request.method,
             "message": f"Tracking request failed with HTTP {status_code}",
-            "request_hash": request_hash  # Hash for matching
-        }, {
-            "request_path": flow.request.path, 
-            "raw_data": {}, 
-            "request_url": flow.request.url,
-            "response_headers": dict(flow.response.headers)
-        })
+            "request_hash": request_hash
+        }
+        metadata = self._create_response_metadata(flow)
+        self.logger.log_structured("warning", "tracking_request_failed", error_data, metadata)
     
     def _log_successful_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_key: str) -> None:
         """Log and track successful request"""
-        self.logger.log_debug(f"✓ {platform} tracking success: HTTP {status_code}")
+        self._debug_log(f"✓ {platform} tracking success: HTTP {status_code}")
         
         # Store success status
         pending_requests[request_key] = {
