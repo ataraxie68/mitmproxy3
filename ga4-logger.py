@@ -1947,14 +1947,24 @@ class UnifiedResponseProcessor:
         host = flow.request.pretty_host
         path = flow.request.path
         
+        # Debug: Log all cookie setting attempts
+        self._debug_log(f"Cookies detected on {host}: {len(set_cookie_headers)} cookies")
+        
         # Determine if this is a relevant domain
         is_tracking_domain = self._is_tracking_domain(host)
         is_target_domain = self._is_target_domain(host)
         
+        self._debug_log(f"Cookie domain check - {host}: tracking={is_tracking_domain}, target={is_target_domain}")
+        
         if is_tracking_domain or is_target_domain:
             cookies_info = self._extract_cookie_names(set_cookie_headers)
             if cookies_info:
+                self._debug_log(f"Logging cookies for {host}: {cookies_info}")
                 self._log_cookie_setting(host, path, cookies_info, is_tracking_domain, set_cookie_headers, flow.request.url)
+            else:
+                self._debug_log(f"No cookie names extracted from {len(set_cookie_headers)} headers")
+        else:
+            self._debug_log(f"Ignoring cookies from non-relevant domain: {host}")
     
     def _is_tracking_domain(self, host: str) -> bool:
         """Check if host is a tracking domain"""
@@ -1986,18 +1996,29 @@ class UnifiedResponseProcessor:
                            is_tracking_domain: bool, set_cookie_headers, request_url: str) -> None:
         """Log cookie setting event"""
         cookie_type = "tracking" if is_tracking_domain else "target_domain"
-        self.logger.log_structured("cookie", "cookie_set", {
+        
+        cookie_data = {
             "host": host,
+            "domain": host,  # Standardize with client-side
             "path": path,
+            "action": "set",  # Standardize with client-side
             "cookies": cookies_info,
             "cookie_count": len(cookies_info),
             "cookie_type": cookie_type,
-            "full_cookies": set_cookie_headers
-        }, {
-            "request_path": path, 
-            "raw_data": {}, 
+            "full_cookies": set_cookie_headers,
+            # For compatibility with display logic, if single cookie provide as cookie_name
+            "cookie_name": cookies_info[0] if len(cookies_info) == 1 else None
+        }
+        
+        # Create a minimal flow-like object for metadata creation
+        metadata = {
+            "request_path": path,
+            "raw_data": {},
             "request_url": request_url
-        })
+        }
+        
+        self.logger.log_structured("cookie", "cookie_set", cookie_data, metadata)
+        self._debug_log(f"✓ Logged {len(cookies_info)} cookies for {host} ({cookie_type})")
 
 
 # Global response processor instance

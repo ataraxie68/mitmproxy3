@@ -10,7 +10,8 @@
       "datalayer": "📋",
       "url_change": "🌐",
       "cookie": "🍪",
-      "request_status_update": "📡"
+      "request_status_update": "📡",
+      "violation": "⚠️"
     },
     "statusColors": {
       "info": "#64B5F6",
@@ -709,6 +710,56 @@
         "icon": "<i class=\"fa-solid fa-shield-check brand-icon icon-cmp\"></i>",
         "color": "#00B8D4",
         "highlightClass": "universal-highlight-cmp"
+      }
+    },
+    "Microsoft Clarity": {
+      "name": "Microsoft Clarity",
+      "hosts": ["c.clarity.ms", "clarity.ms", "www.clarity.ms"],
+      "paths": ["/collect", "/c", "/clarity", "/session"],
+      "paramMap": {
+        "id": "project_id",
+        "sid": "session_id",
+        "uid": "user_id",
+        "t": "event_type",
+        "ts": "timestamp",
+        "url": "page_url",
+        "referrer": "referrer",
+        "action": "action",
+        "element": "element",
+        "data": "data"
+      },
+      "pixelIdKey": "id",
+      "eventNameKey": "t",
+      "description": "Microsoft Clarity - Free user behavior analytics tool that shows how people interact with your website.",
+      "ui": {
+        "icon": "🔍",
+        "color": "#0078D4",
+        "highlightClass": "universal-highlight-clarity"
+      }
+    },
+    "Cloudflare Zaraz": {
+      "name": "Cloudflare Zaraz",
+      "hosts": ["zaraz.googletagmanager.com", "cloudflareinsights.com", "zaraz.cloudflareinsights.com"],
+      "paths": ["/zaraz/i", "/zaraz/collect", "/zaraz/t", "/beacon/0/track", "/beacon", "/cdn-cgi/zaraz/"],
+      "paramMap": {
+        "z": "zaraz_id",
+        "t": "event_type",
+        "d": "data",
+        "p": "page",
+        "r": "referrer",
+        "ts": "timestamp",
+        "sid": "session_id",
+        "uid": "user_id",
+        "event": "event_name",
+        "action": "action"
+      },
+      "pixelIdKey": "z",
+      "eventNameKey": "event",
+      "description": "Cloudflare Zaraz - Third-party tool and analytics manager that loads in the cloud.",
+      "ui": {
+        "icon": "☁️",
+        "color": "#F38020",
+        "highlightClass": "universal-highlight-zaraz"
       }
     },
     "Custom Tracking": {

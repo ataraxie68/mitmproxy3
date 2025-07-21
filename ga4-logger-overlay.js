@@ -627,17 +627,32 @@ function formatCookieDetails(data, metadata) {
         out += `Request URL: ${metadata.request_url}\n`;
     }
 
+    // Common fields for all cookie types
+    if (data.action) out += `Action: ${data.action}\n`;
     if (data.path) out += `Path: ${data.path}\n`;
     if (data.cookie_type) out += `Type: ${data.cookie_type}\n`;
     if (data.cookie_count) out += `Count: ${data.cookie_count}\n`;
+    if (data.domain || data.host) out += `Domain: ${data.domain || data.host}\n`;
 
-    if (data.cookies && Array.isArray(data.cookies)) {
+    // Show cookie values for client-side cookies
+    if (data.cookie_type === 'client_side') {
+        if (data.new_value !== undefined) {
+            out += `New Value: ${data.new_value || '(empty)'}\n`;
+        }
+        if (data.old_value !== undefined) {
+            out += `Old Value: ${data.old_value || '(empty)'}\n`;
+        }
+    }
+
+    // Show cookie list for both server-side and client-side (now standardized)
+    if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
         out += `\nCookies:\n`;
         data.cookies.forEach((cookie, index) => {
             out += `  ${index + 1}. ${cookie}\n`;
         });
     }
 
+    // Show full cookie headers (mainly for server-side)
     if (data.full_cookies && Array.isArray(data.full_cookies)) {
         out += `\nFull Cookie Headers:\n`;
         data.full_cookies.forEach((cookie, index) => {
@@ -1017,12 +1032,46 @@ const messageHandlers = {
     },
 
     'cookie': (logEntry) => {
-        const { data } = logEntry;
+        const { event, data } = logEntry;
         const icon = CONFIG.typeIconMap.cookie;
-        const summary = `Cookie <b>Set</b>: ${data.cookies?.join(', ') || 'Unknown'}`;
+
+        // Determine cookie source and message type
+        let cookieSource, messageType;
+        if (data.cookie_type === 'client_side') {
+            cookieSource = 'Client-side';
+            messageType = 'ClientCookie';
+        } else if (data.cookie_type === 'tracking') {
+            cookieSource = 'Server-side (Tracking)';
+            messageType = 'ServerCookie';
+        } else if (data.cookie_type === 'target_domain') {
+            cookieSource = 'Server-side (Target)';
+            messageType = 'ServerCookie';
+        } else {
+            cookieSource = 'Server-side';
+            messageType = 'ServerCookie';
+        }
+
+        // Use standardized action field, with fallback to event
+        const cookieAction = data.action || event || 'set';
+        
+        // Create action-aware summary
+        let actionText = cookieAction.replace(/^cookie_/i, '').replace(/_/g, ' ');
+        actionText = actionText.charAt(0).toUpperCase() + actionText.slice(1);
+        
+        // Use standardized cookie name handling
+        let cookieNames;
+        if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
+            cookieNames = data.cookies.join(', ');
+        } else if (data.cookie_name) {
+            cookieNames = data.cookie_name;
+        } else {
+            cookieNames = 'Unknown';
+        }
+        
+        const summary = `Cookie <b>${actionText}</b> (${cookieSource}): ${cookieNames}`;
+        
         const details = formatCookieDetails(data, logEntry.metadata);
-        const cookieType = data.cookie_type === 'tracking' ? 'ServerCookie' : 'ClientCookie';
-        renderMessage(summary, cookieType, icon, false, false, details);
+        renderMessage(summary, messageType, icon, false, false, details);
     },
 
     'url_change': (logEntry) => {
@@ -1046,6 +1095,97 @@ const messageHandlers = {
 
     'request_status_update': (logEntry) => {
         updateRequestStatus(logEntry.data);
+    },
+
+    'violation': (logEntry) => {
+        const { event, data } = logEntry;
+        const icon = '⚠️';
+        
+        if (event === 'marketing_cookies_preloaded') {
+            const cookieCount = data.cookie_count || 0;
+            const severity = data.severity || 'MEDIUM';
+            const severityColor = severity === 'HIGH' ? '#F44336' : severity === 'MEDIUM' ? '#FF9800' : '#FFC107';
+            
+            const summary = `<b style="color: ${severityColor};">GDPR Violation Risk</b> - ${cookieCount} marketing cookie(s) already set before banner`;
+            
+            const cookieList = data.marketing_cookies ? 
+                data.marketing_cookies.map(cookie => `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}`).join('\n') : 
+                'No cookie details available';
+            
+            const details = [
+                `Violation Type: ${data.violation_type || 'marketing_cookies_before_banner'}`,
+                `Severity: ${severity}`,
+                `Compliance Risk: ${data.compliance_risk || 'GDPR_PRELOAD_VIOLATION'}`,
+                `Domain: ${data.domain || 'Unknown'}`,
+                `Cookie Count: ${cookieCount}`,
+                '',
+                'Marketing Cookies Found:',
+                cookieList,
+                '',
+                `Message: ${data.message || 'Marketing cookies detected before consent banner appeared'}`,
+                `URL: ${data.url || 'Unknown'}`
+            ].join('\n');
+            
+            renderMessage(summary, 'violation', icon, true, false, details);
+        } else if (event === 'marketing_cookie_while_banner_visible') {
+            const severity = data.severity || 'HIGH';
+            const severityColor = severity === 'HIGH' ? '#F44336' : '#FF9800';
+            const violatingCookie = data.violating_cookie_name || data.cookie_name || 'Unknown Cookie';
+            const action = data.action || 'set';
+            const totalMarketing = data.total_marketing_cookies || 0;
+            const totalOther = data.total_other_cookies || 0;
+            
+            const summary = `<b style="color: ${severityColor};">GDPR Violation</b> - Marketing cookie '${violatingCookie}' ${action} while banner visible (${totalMarketing} total marketing cookies)`;
+            
+            // Build comprehensive cookie lists
+            let marketingCookiesList = 'No marketing cookies data available';
+            if (data.all_marketing_cookies && data.all_marketing_cookies.length > 0) {
+                marketingCookiesList = data.all_marketing_cookies.map(cookie => {
+                    const violatingMarker = cookie.is_violating_cookie ? ' ⚠️ [VIOLATING]' : '';
+                    return `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}${violatingMarker}`;
+                }).join('\n');
+            }
+            
+            let otherCookiesList = 'No other cookies';
+            if (data.all_other_cookies && data.all_other_cookies.length > 0) {
+                otherCookiesList = data.all_other_cookies.slice(0, 10).map(cookie => 
+                    `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}`
+                ).join('\n');
+                if (data.all_other_cookies.length > 10) {
+                    otherCookiesList += `\n... and ${data.all_other_cookies.length - 10} more`;
+                }
+            }
+            
+            const details = [
+                `Violation Type: ${data.violation_type || 'marketing_cookie_while_banner_visible'}`,
+                `Violating Cookie: ${violatingCookie}`,
+                `Violating Cookie Value: ${data.violating_cookie_value || data.cookie_value || 'N/A'}`,
+                `Action: ${action}`,
+                `Severity: ${severity}`,
+                `Compliance Risk: ${data.compliance_risk || 'GDPR_VIOLATION_RISK'}`,
+                `Domain: ${data.domain || 'Unknown'}`,
+                '',
+                `Cookie Context:`,
+                `Total Marketing Cookies: ${totalMarketing}`,
+                `Total Other Cookies: ${totalOther}`,
+                '',
+                'All Marketing Cookies:',
+                marketingCookiesList,
+                '',
+                'Other Cookies (sample):',
+                otherCookiesList,
+                '',
+                `Message: ${data.message || 'Marketing cookie set while consent banner visible without proper consent'}`,
+                `URL: ${data.url || 'Unknown'}`
+            ].join('\n');
+            
+            renderMessage(summary, 'violation', icon, true, false, details);
+        } else {
+            // Generic violation handler
+            const summary = `<b style="color: #F44336;">Compliance Violation</b> - ${event}`;
+            const details = prettyPrintDetailsFlat(data, logEntry.metadata, false);
+            renderMessage(summary, 'violation', icon, true, false, details);
+        }
     }
 };
 

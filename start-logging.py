@@ -236,11 +236,30 @@ def unified_output_handler():
                             print(f"🍪 Cookie banner hidden ({data.get('reason', 'unknown')})", flush=True)
                     elif log_type == 'violation':
                         if event == 'marketing_cookie_while_banner_visible':
+                            violating_cookie = data.get('violating_cookie_name', data.get('cookie_name', 'unknown'))
+                            total_marketing = data.get('total_marketing_cookies', 0)
+                            total_other = data.get('total_other_cookies', 0)
+                            
                             print(f"⚠️  🚨 GDPR VIOLATION WARNING 🚨", flush=True)
-                            print(f"   Marketing cookie '{data.get('cookie_name', 'unknown')}' set while banner visible!", flush=True)
-                            print(f"   Action: {data.get('action', 'unknown')}", flush=True)
-                            print(f"   Severity: {data.get('severity', 'unknown')}", flush=True)
-                            print(f"   Risk: {data.get('compliance_risk', 'unknown')}", flush=True)
+                            print(f"   Violating cookie: '{violating_cookie}' {data.get('action', 'set')} while banner visible!", flush=True)
+                            print(f"   Total marketing cookies: {total_marketing}, Other cookies: {total_other}", flush=True)
+                            print(f"   Severity: {data.get('severity', 'HIGH')}", flush=True)
+                            print(f"   Risk: {data.get('compliance_risk', 'GDPR_VIOLATION_RISK')}", flush=True)
+                            
+                            # Show all marketing cookies if available
+                            if data.get('all_marketing_cookies'):
+                                marketing_names = [cookie.get('name', 'unknown') for cookie in data.get('all_marketing_cookies', [])]
+                                print(f"   All marketing cookies: {', '.join(marketing_names[:10])}{'...' if len(marketing_names) > 10 else ''}", flush=True)
+                        elif event == 'marketing_cookies_preloaded':
+                            cookie_count = data.get('cookie_count', 0)
+                            print(f"⚠️  🚨 GDPR PRELOAD VIOLATION 🚨", flush=True)
+                            print(f"   {cookie_count} marketing cookie(s) already set before banner appeared!", flush=True)
+                            print(f"   Domain: {data.get('domain', 'unknown')}", flush=True)
+                            print(f"   Severity: {data.get('severity', 'MEDIUM')}", flush=True)
+                            print(f"   Risk: {data.get('compliance_risk', 'GDPR_PRELOAD_VIOLATION')}", flush=True)
+                            if data.get('marketing_cookies'):
+                                cookie_names = [cookie.get('name', 'unknown') for cookie in data.get('marketing_cookies', [])]
+                                print(f"   Cookies: {', '.join(cookie_names[:5])}{'...' if len(cookie_names) > 5 else ''}", flush=True)
                 except (json.JSONDecodeError, KeyError):
                     pass  # Skip malformed structured logs
             else:
@@ -732,11 +751,35 @@ def run_browser_with_proxy():
                         
                         // Only flag as violation if banner is visible AND no marketing consent has been granted
                         if (isBannerVisible && isMarketing && !hasMarketingConsent) {
+                            // Get all existing cookies for comprehensive violation reporting
+                            const existingCookies = document.cookie.split(';');
+                            const allMarketingCookies = [];
+                            const allOtherCookies = [];
+                            
+                            existingCookies.forEach(cookie => {
+                                const [cookieName, cookieValue] = cookie.trim().split('=').map(s => s.trim());
+                                if (cookieName) {
+                                    const truncatedValue = cookieValue ? (cookieValue.length > 50 ? cookieValue.substring(0, 50) + '...' : cookieValue) : null;
+                                    if (isMarketingCookie(cookieName, cookieValue)) {
+                                        allMarketingCookies.push({
+                                            name: cookieName,
+                                            value: truncatedValue,
+                                            is_violating_cookie: cookieName === name
+                                        });
+                                    } else {
+                                        allOtherCookies.push({
+                                            name: cookieName,
+                                            value: truncatedValue
+                                        });
+                                    }
+                                }
+                            });
+                            
                             console.log('[MARKETING_COOKIE_VIOLATION]', JSON.stringify({
                                 timestamp: new Date().toISOString(),
                                 violation_type: 'marketing_cookie_while_banner_visible',
-                                cookie_name: name,
-                                cookie_value: newValue ? (newValue.length > 50 ? newValue.substring(0, 50) + '...' : newValue) : null,
+                                violating_cookie_name: name,
+                                violating_cookie_value: newValue ? (newValue.length > 50 ? newValue.substring(0, 50) + '...' : newValue) : null,
                                 action: action,
                                 domain: domain,
                                 url: window.location.href,
@@ -744,7 +787,12 @@ def run_browser_with_proxy():
                                 marketing_consent: hasMarketingConsent,
                                 severity: 'HIGH',
                                 compliance_risk: 'GDPR_VIOLATION_RISK',
-                                message: `Marketing cookie '${name}' was ${action} while cookie banner is visible and no marketing consent granted - potential GDPR violation`
+                                message: `Marketing cookie '${name}' was ${action} while cookie banner is visible and no marketing consent granted - potential GDPR violation`,
+                                // Include comprehensive cookie context
+                                all_marketing_cookies: allMarketingCookies,
+                                all_other_cookies: allOtherCookies,
+                                total_marketing_cookies: allMarketingCookies.length,
+                                total_other_cookies: allOtherCookies.length
                             }));
                         }
                     }
@@ -960,6 +1008,36 @@ def run_browser_with_proxy():
 
                         console.log('[COOKIE_BANNER_DETECTED]', JSON.stringify(bannerInfo));
                         
+                        // Check for existing marketing cookies when banner is detected
+                        setTimeout(() => {
+                            const existingCookies = document.cookie.split(';');
+                            const marketingCookies = [];
+                            
+                            existingCookies.forEach(cookie => {
+                                const [name, value] = cookie.trim().split('=').map(s => s.trim());
+                                if (name && isMarketingCookie(name, value)) {
+                                    marketingCookies.push({
+                                        name: name,
+                                        value: value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : null
+                                    });
+                                }
+                            });
+                            
+                            if (marketingCookies.length > 0) {
+                                console.log('[MARKETING_COOKIES_ALREADY_SET]', JSON.stringify({
+                                    timestamp: new Date().toISOString(),
+                                    url: window.location.href,
+                                    domain: window.location.hostname,
+                                    marketing_cookies: marketingCookies,
+                                    cookie_count: marketingCookies.length,
+                                    banner_just_detected: true,
+                                    severity: 'MEDIUM',
+                                    compliance_risk: 'GDPR_PRELOAD_VIOLATION',
+                                    message: `${marketingCookies.length} marketing cookie(s) were already set before cookie banner appeared - potential GDPR violation`
+                                }));
+                            }
+                        }, 100); // Small delay to ensure banner detection is complete
+                        
                         // Also log buttons within the banner
                         const buttons = foundBanner.querySelectorAll('button, a, [role="button"]');
                         if (buttons.length > 0) {
@@ -1132,22 +1210,27 @@ def run_browser_with_proxy():
                 elif text.startswith('[COOKIE_EVENT]'):
                     cookie_data = json.loads(text.replace('[COOKIE_EVENT] ', ''))
                     action = cookie_data.get('action', 'unknown')
+                    cookie_name = cookie_data.get('cookie_name')
                     structured_log = create_structured_log(
                         "cookie", f"cookie_{action}",
                         {
-                            "cookie_name": cookie_data.get('cookie_name'),
+                            "cookie_name": cookie_name,
                             "action": action,
                             "new_value": cookie_data.get('new_value'),
                             "old_value": cookie_data.get('old_value'),
                             "domain": cookie_data.get('domain'),
                             "path": cookie_data.get('path'),
                             "host": cookie_data.get('host'),
-                            "cookie_type": "client_side"
+                            "cookie_type": "client_side",
+                            # Add fields for consistency with server-side
+                            "cookies": [cookie_name] if cookie_name else [],
+                            "cookie_count": 1 if cookie_name else 0
                         },
                         {
                             "source": "client_observer",
                             "timestamp": cookie_data.get('timestamp'),
-                            "url": cookie_data.get('url')
+                            "url": cookie_data.get('url'),
+                            "request_url": cookie_data.get('url')  # Add for consistency
                         }
                     )
                     output_queue.put(structured_log)
@@ -1217,18 +1300,47 @@ def run_browser_with_proxy():
                         "violation", "marketing_cookie_while_banner_visible",
                         {
                             "violation_type": violation_data.get('violation_type'),
-                            "cookie_name": violation_data.get('cookie_name'),
-                            "cookie_value": violation_data.get('cookie_value'),
+                            "violating_cookie_name": violation_data.get('violating_cookie_name'),
+                            "violating_cookie_value": violation_data.get('violating_cookie_value'),
                             "action": violation_data.get('action'),
                             "domain": violation_data.get('domain'),
                             "url": violation_data.get('url'),
                             "severity": violation_data.get('severity'),
                             "compliance_risk": violation_data.get('compliance_risk'),
-                            "message": violation_data.get('message')
+                            "message": violation_data.get('message'),
+                            # Include comprehensive cookie context
+                            "all_marketing_cookies": violation_data.get('all_marketing_cookies'),
+                            "all_other_cookies": violation_data.get('all_other_cookies'),
+                            "total_marketing_cookies": violation_data.get('total_marketing_cookies'),
+                            "total_other_cookies": violation_data.get('total_other_cookies'),
+                            # Keep legacy field for backward compatibility
+                            "cookie_name": violation_data.get('violating_cookie_name'),
+                            "cookie_value": violation_data.get('violating_cookie_value')
                         },
                         {
                             "source": "compliance_monitor",
                             "timestamp": violation_data.get('timestamp')
+                        }
+                    )
+                    output_queue.put(structured_log)
+                elif text.startswith('[MARKETING_COOKIES_ALREADY_SET]'):
+                    preload_data = json.loads(text.replace('[MARKETING_COOKIES_ALREADY_SET] ', ''))
+                    structured_log = create_structured_log(
+                        "violation", "marketing_cookies_preloaded",
+                        {
+                            "violation_type": "marketing_cookies_before_banner",
+                            "domain": preload_data.get('domain'),
+                            "url": preload_data.get('url'),
+                            "marketing_cookies": preload_data.get('marketing_cookies'),
+                            "cookie_count": preload_data.get('cookie_count'),
+                            "severity": preload_data.get('severity'),
+                            "compliance_risk": preload_data.get('compliance_risk'),
+                            "message": preload_data.get('message'),
+                            "banner_just_detected": preload_data.get('banner_just_detected')
+                        },
+                        {
+                            "source": "compliance_monitor",
+                            "timestamp": preload_data.get('timestamp')
                         }
                     )
                     output_queue.put(structured_log)
@@ -1251,8 +1363,8 @@ def run_browser_with_proxy():
                     '[COOKIE_EVENT]' in text or '[COOKIE_MONITOR]' in text or
                     '[COOKIE_BANNER_DETECTED]' in text or '[COOKIE_BANNER_BUTTONS]' in text or 
                     '[COOKIE_BANNER_MONITOR]' in text or '[MARKETING_COOKIE_VIOLATION]' in text or 
-                    '[COOKIE_BANNER_HIDDEN]' in text or '[SCRIPT_INJECTION]' in text or 
-                    '[FRAME_CHECK]' in text):
+                    '[MARKETING_COOKIES_ALREADY_SET]' in text or '[COOKIE_BANNER_HIDDEN]' in text or 
+                    '[SCRIPT_INJECTION]' in text or '[FRAME_CHECK]' in text):
                     output_queue.put(f"CLIENT: {text}")
 
         site_page.on("console", handle_console)
