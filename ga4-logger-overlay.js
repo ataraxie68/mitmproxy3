@@ -121,6 +121,13 @@ async function loadConfig() {
         }
 
         console.log('Configuration loaded successfully');
+        
+        // Validate that ga4Limits were loaded correctly
+        if (CONFIG.ga4Limits && CONFIG.ga4Limits.event_name) {
+            console.log('✅ GA4 parameter validation ready');
+        } else {
+            console.warn('❌ GA4 limits not properly loaded from configuration');
+        }
     } catch (error) {
         console.warn('Error loading configuration:', error);
     }
@@ -374,11 +381,35 @@ function getPlatformHighlightClass(platform) {
 
 // ===== PARAMETER VALIDATION =====
 function checkGA4ParameterLength(paramName, paramValue, platform) {
-    if ((platform !== 'GA4' && platform !== 'sGTM' && platform !== 'Server-side GTM') || !paramValue) return null;
+    // Check if this is a GA4-compatible platform
+    if (!platform || (platform !== 'GA4' && platform !== 'sGTM' && platform !== 'Server-side GTM')) {
+        return null;
+    }
+    
+    // Check if paramValue exists and has length
+    if (!paramValue || typeof paramValue !== 'string') {
+        return null;
+    }
 
-    const limit = CONFIG.ga4Limits[paramName] || CONFIG.ga4Limits.custom_parameter;
+    // Ensure ga4Limits is available
+    if (!CONFIG || !CONFIG.ga4Limits) {
+        console.warn('GA4 parameter validation: CONFIG.ga4Limits not available');
+        return null;
+    }
+
+    // Get the appropriate limit for this parameter
+    const specificLimit = CONFIG.ga4Limits[paramName];
+    const defaultLimit = CONFIG.ga4Limits.custom_parameter;
+    const limit = specificLimit || defaultLimit;
+    
+    if (!limit) {
+        console.warn(`GA4 parameter validation: No limit found for parameter '${paramName}' and no default limit available`);
+        return null;
+    }
+
     const current = paramValue.length;
 
+    // Check if the parameter exceeds the limit
     if (current > limit) {
         return {
             current,
@@ -387,6 +418,7 @@ function checkGA4ParameterLength(paramName, paramValue, platform) {
             severity: current > limit * 1.5 ? 'error' : 'warning'
         };
     }
+    
     return null;
 }
 
