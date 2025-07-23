@@ -483,167 +483,426 @@ function highlightLongParameters(detailsText, platform) {
 }
 
 // ===== FORMATTING FUNCTIONS =====
-function prettyPrintNestedJson(obj, indent = 2) {
-    if (typeof obj !== 'object' || obj === null) {
-        return String(obj);
-    }
+class EventFormatter {
+    // Core data formatting with JSON parsing
+    static formatObject(obj, indent = 2) {
+        if (typeof obj !== 'object' || obj === null) {
+            return String(obj);
+        }
 
-    // Parse nested JSON strings for better display
-    const parseNestedJson = (value) => {
-        if (typeof value === 'string') {
-            // Try to parse as JSON if it looks like JSON
-            if ((value.startsWith('{') && value.endsWith('}')) ||
-                (value.startsWith('[') && value.endsWith(']'))) {
+        const parseNestedJson = (value) => {
+            if (typeof value === 'string' && 
+                ((value.startsWith('{') && value.endsWith('}')) || 
+                 (value.startsWith('[') && value.endsWith(']')))) {
                 try {
                     return JSON.parse(value);
                 } catch (e) {
-                    // If parsing fails, return original string
                     return value;
                 }
             }
-        } else if (typeof value === 'object' && value !== null) {
-            // Recursively process objects and arrays
-            if (Array.isArray(value)) {
-                return value.map(parseNestedJson);
-            } else {
+            if (typeof value === 'object' && value !== null) {
+                if (Array.isArray(value)) {
+                    return value.map(parseNestedJson);
+                }
                 const parsed = {};
                 for (const [key, val] of Object.entries(value)) {
                     parsed[key] = parseNestedJson(val);
                 }
                 return parsed;
             }
-        }
-        return value;
-    };
+            return value;
+        };
 
-    const processedObj = parseNestedJson(obj);
-    return JSON.stringify(processedObj, null, indent);
+        return JSON.stringify(parseNestedJson(obj), null, indent);
+    }
+
+    // Standardized event detail formatting with consistent sections
+    static format(eventType, data, metadata, options = {}) {
+        const {
+            showUrl = true,
+            showRawData = true, 
+            showResponse = true,
+            showEventData = true,
+            platform = null
+        } = options;
+        
+        const sections = [];
+        
+        // 📍 REQUEST URL SECTION
+        if (showUrl && metadata?.request_url) {
+            sections.push(`📍 Request URL:\n${metadata.request_url}`);
+        }
+        
+        // 📊 EVENT DATA SECTION (for non-raw events)
+        if (showEventData && data && eventType !== 'raw') {
+            const eventData = this.formatEventData(data, eventType);
+            if (eventData) {
+                sections.push(`📊 Event Data:\n${eventData}`);
+            }
+        }
+        
+        // 📋 RAW DATA SECTION
+        if (showRawData && metadata?.raw_data) {
+            const cleanedData = this.cleanRawData(metadata.raw_data);
+            let rawSection = `📋 Raw Data:\n${this.formatObject(cleanedData, 2)}`;
+            
+            // Apply GA4 parameter highlighting if needed
+            if (platform && this.isGA4Platform(platform)) {
+                rawSection = this.applyParameterHighlighting(rawSection, platform);
+            }
+            
+            sections.push(rawSection);
+        }
+        
+        // 📡 RESPONSE INFO SECTION
+        if (showResponse && metadata?.response_headers) {
+            sections.push(`📡 Response Info:\n${this.formatObject(metadata.response_headers, 2)}`);
+        }
+        
+        return sections.join('\n\n');
+    }
+
+    // Clean raw data by removing internal fields
+    static cleanRawData(rawData) {
+        if (!rawData || typeof rawData !== 'object') return rawData;
+        const cleaned = { ...rawData };
+        delete cleaned._request_path;
+        delete cleaned._request_host;
+        return cleaned;
+    }
+    
+    // Check if platform needs GA4 parameter highlighting
+    static isGA4Platform(platform) {
+        return platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM';
+    }
+    
+    // Apply parameter highlighting for GA4 platforms
+    static applyParameterHighlighting(text, platform) {
+        if (!this.isGA4Platform(platform)) return text;
+        
+        const lines = text.split('\n');
+        const processedLines = lines.map(line => {
+            const match = line.match(/^([^:]+):\s*(.+)$/);
+            if (match) {
+                const paramName = match[1].trim();
+                const paramValue = match[2].trim();
+                
+                // Check GA4 parameter length limits
+                const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
+                if (lengthCheck) {
+                    const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
+                    const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
+                    return `${paramName}: ${paramValue}${warningText}`;
+                }
+                
+                // Apply universal parameter highlighting
+                const highlighted = this.highlightImportantParams(paramName, paramValue);
+                if (highlighted !== paramValue) {
+                    return `${paramName}: ${highlighted}`;
+                }
+            }
+            return line;
+        });
+        
+        return processedLines.join('\n');
+    }
+    
+    // Highlight important parameters
+    static highlightImportantParams(paramName, paramValue) {
+        const importantParams = {
+            'pixel_id': 'pixel-id-highlight',
+            'tracking_id': 'tracking-id-highlight', 
+            'event_name': 'event-name-highlight',
+            'event_id': 'event-id-highlight',
+            'conversion_id': 'conversion-id-highlight',
+            'campaign_id': 'campaign-id-highlight',
+            'user_id': 'user-id-highlight',
+            'client_id': 'client-id-highlight'
+        };
+        
+        const lowerParamName = paramName.toLowerCase();
+        for (const [key, cssClass] of Object.entries(importantParams)) {
+            if (lowerParamName.includes(key.replace('_', '')) || lowerParamName.includes(key)) {
+                return `<span class="${cssClass}">${paramValue}</span>`;
+            }
+        }
+        
+        // Highlight long parameters
+        if (paramValue.length > 50) {
+            return `<span class="long-param-value">${paramValue}</span>`;
+        }
+        
+        return paramValue;
+    }
+
+    // Format event-specific data based on event type
+    static formatEventData(data, eventType) {
+        if (!data) return '';
+        
+        switch (eventType) {
+            case 'datalayer':
+                return this.formatDataLayerEvent(data);
+            case 'cookie':
+                return this.formatCookieEvent(data);
+            case 'url_change':
+                return this.formatUrlChangeEvent(data);
+            case 'marketing_pixel_event':
+                return this.formatMarketingPixelEvent(data);
+            default:
+                return this.formatGenericEvent(data);
+        }
+    }
+    
+    // Format generic event data
+    static formatGenericEvent(data) {
+        const lines = [];
+        const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp', 'request_hash', 'event_type'];
+        
+        // Add relevant fields
+        for (const field of relevantFields) {
+            if (data[field]) {
+                lines.push(`${field}: ${data[field]}`);
+            }
+        }
+        
+        // Add extra info
+        if (data.extra_info && Array.isArray(data.extra_info)) {
+            lines.push('\nExtra Info:');
+            data.extra_info.forEach(info => lines.push(`  • ${info}`));
+        }
+        
+        // Add mapped data
+        if (data.mapped_data && Object.keys(data.mapped_data).length > 0) {
+            lines.push('\nMapped Data:');
+            for (const [key, value] of Object.entries(data.mapped_data)) {
+                lines.push(`  ${key}: ${value}`);
+            }
+        }
+        
+        // Add debug info
+        if (data.debug_info) {
+            lines.push('\nDebug Info:');
+            lines.push(this.formatObject(data.debug_info, 2));
+        }
+        
+        // Add JavaScript endpoint info
+        if (data.js_info) {
+            lines.push('\nJavaScript Info:');
+            lines.push(`  Type: ${data.js_info.type}`);
+            lines.push(`  Description: ${data.js_info.description}`);
+            if (data.js_info.pattern) {
+                lines.push(`  Pattern: ${data.js_info.pattern}`);
+            }
+        }
+        
+        return lines.join('\n');
+    }
+
+    // Format DataLayer events
+    static formatDataLayerEvent(data) {
+        const lines = [];
+        
+        if (data.event_name) {
+            lines.push(`Event: ${data.event_name}`);
+        }
+        
+        if (data.data_layer_data) {
+            lines.push('\nDataLayer Data:');
+            lines.push(this.formatObject(data.data_layer_data, 2));
+        } else {
+            lines.push('\nDataLayer Data:');
+            lines.push(this.formatObject(data, 2));
+        }
+        
+        return lines.join('\n');
+    }
+    
+    // Format Marketing Pixel events
+    static formatMarketingPixelEvent(data) {
+        const lines = [];
+        
+        if (data.platform) lines.push(`Platform: ${data.platform}`);
+        if (data.pixel_id) lines.push(`Pixel ID: ${data.pixel_id}`);
+        if (data.event_name) lines.push(`Event: ${data.event_name}`);
+        
+        // Add platform-specific tracking parameters
+        const trackingParams = this.getTrackingParams(data);
+        if (trackingParams.length > 0) {
+            lines.push('\nTracking Parameters:');
+            trackingParams.forEach(param => lines.push(`  ${param}`));
+        }
+        
+        return lines.join('\n');
+    }
+    
+    // Get tracking parameters for marketing pixels
+    static getTrackingParams(data) {
+        const params = [];
+        const platformTrackingParamMap = {
+            'GA4': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+            'Google Ads': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+            'DoubleClick': ['gclid', 'dclid', 'wbraid', 'gbraid'],
+            'Facebook': ['fbc', 'fbp', '_fbc', '_fbp'],
+            'TikTok': ['ttclid', 'ttp'],
+            'Microsoft/Bing': ['msclkid'],
+            'Pinterest': ['pinclid'],
+            'LinkedIn': ['liclid'],
+            'Twitter/X': ['twclid'],
+            'Snapchat': ['scclid']
+        };
+        
+        const platformParams = platformTrackingParamMap[data.platform];
+        if (platformParams) {
+            for (const paramName of platformParams) {
+                const value = data[paramName] || data.mapped_data?.[paramName] || data.metadata?.raw_data?.[paramName];
+                if (value && value.toString().trim() !== '') {
+                    const displayValue = value.length > 12 ? value.substring(0, 12) + '...' : value;
+                    params.push(`${paramName}: ${displayValue}`);
+                } else {
+                    params.push(`${paramName}: <missing>`);
+                }
+            }
+        }
+        
+        return params;
+    }
+
+    // Format Cookie events
+    static formatCookieEvent(data) {
+        const lines = [];
+        
+        // Basic cookie info
+        if (data.action) lines.push(`Action: ${data.action}`);
+        if (data.path) lines.push(`Path: ${data.path}`);
+        if (data.cookie_type) lines.push(`Type: ${data.cookie_type}`);
+        if (data.cookie_count) lines.push(`Count: ${data.cookie_count}`);
+        if (data.domain || data.host) lines.push(`Domain: ${data.domain || data.host}`);
+        
+        // Client-side cookie values
+        if (data.cookie_type === 'client_side') {
+            if (data.new_value !== undefined) {
+                lines.push(`New Value: ${data.new_value || '(empty)'}`);
+            }
+            if (data.old_value !== undefined) {
+                lines.push(`Old Value: ${data.old_value || '(empty)'}`);
+            }
+        }
+        
+        // Cookie list
+        if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
+            lines.push('\nCookies:');
+            data.cookies.forEach((cookie, index) => {
+                lines.push(`  ${index + 1}. ${cookie}`);
+            });
+        }
+        
+        // Full cookie headers
+        if (data.full_cookies && Array.isArray(data.full_cookies)) {
+            lines.push('\nFull Cookie Headers:');
+            data.full_cookies.forEach((cookie, index) => {
+                lines.push(`  ${index + 1}. ${cookie}`);
+            });
+        }
+        
+        return lines.join('\n');
+    }
+
+    // Format URL Change events
+    static formatUrlChangeEvent(data) {
+        const lines = [];
+        const keyLabelMap = {
+            from_url: 'From',
+            previous_url: 'From', 
+            to_url: 'To',
+            url: 'To',
+            title: 'Title',
+            description: 'Description',
+            navigation_type: 'Navigation Type',
+            referrer: 'Referrer',
+            user_agent: 'User Agent',
+            timestamp: 'Timestamp',
+            source: 'Source',
+            frame_id: 'Frame ID',
+            page_load_id: 'Page Load ID'
+        };
+        
+        const printedLabels = new Set();
+        
+        // Add navigation details
+        for (const [key, label] of Object.entries(keyLabelMap)) {
+            if (data[key] && !printedLabels.has(label)) {
+                lines.push(`${label}: ${data[key]}`);
+                printedLabels.add(label);
+            }
+        }
+        
+        // Add query parameters
+        const currentUrl = data.to_url || data.url;
+        if (currentUrl) {
+            try {
+                const urlObj = new URL(currentUrl);
+                const params = Array.from(urlObj.searchParams.entries());
+                if (params.length > 0) {
+                    lines.push('\nQuery Parameters:');
+                    params.forEach(([key, value]) => {
+                        const displayValue = value.length > 100 ? value.substring(0, 100) + '...' : value;
+                        lines.push(`  ${key}: ${displayValue}`);
+                    });
+                }
+            } catch (e) {
+                // Invalid URL, skip parameter parsing
+            }
+        }
+        
+        return lines.join('\n');
+    }
+
+    // Format response information
+    static formatResponseInfo(data, isError = false) {
+        const lines = [];
+        const responseFields = [
+            { key: 'response_type', label: 'Response Type' },
+            { key: 'response_size', label: 'Response Size' },
+            { key: 'content_type', label: 'Content Type' },
+            { key: 'response_time', label: 'Response Time' },
+            { key: 'cache_control', label: 'Cache Control' },
+            { key: 'etag', label: 'ETag' }
+        ];
+        
+        for (const field of responseFields) {
+            if (data[field.key]) {
+                lines.push(`${field.label}: ${data[field.key]}`);
+            }
+        }
+        
+        return lines.join('\n');
+    }
+}
+
+// ===== BACKWARD COMPATIBILITY WRAPPER FUNCTIONS =====
+function prettyPrintNestedJson(obj, indent = 2) {
+    return EventFormatter.formatObject(obj, indent);
 }
 
 function formatMetadataSection(metadata, platform = null) {
-    let out = '';
-    if (!metadata) return out;
-
-    // Show request URL prominently at the top
-    if (metadata.request_url) {
-        out += `Request URL:\n${metadata.request_url}\n\n`;
-    }
-
-    if (metadata.response_headers) {
-        out += `Response Headers:\n${JSON.stringify(metadata.response_headers, null, 2)}\n`;
-    }
-
-    if (metadata.raw_data) {
-        const rawDataForDisplay = { ...metadata.raw_data };
-        delete rawDataForDisplay._request_path; // Remove redundant key
-        delete rawDataForDisplay._request_host;
-        
-        // Format raw data with parameter highlighting for GA4 platforms
-        let rawDataText = `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
-        if (platform && (platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM')) {
-            console.log('Applying parameter highlighting for platform:', platform);
-            console.log('Raw data before highlighting:', rawDataText.substring(0, 200));
-            rawDataText = highlightLongParameters(rawDataText, platform);
-            console.log('Raw data after highlighting:', rawDataText.substring(0, 200));
-        }
-        out += rawDataText;
-    }
-
-    return out;
+    return EventFormatter.format('raw', null, metadata, { showEventData: false, platform });
 }
 
 function prettyPrintDetailsRaw(metadata, data = null, platform = null) {
-    let out = formatMetadataSection(metadata, platform);
-    if (data) {
-        out += `Data:\n${prettyPrintNestedJson(data, 1)}`;
-    }
-    return out;
+    return EventFormatter.format('raw', data, metadata, { platform });
 }
 
 function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false, platform = null) {
-    let out = '';
-    const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp', 'request_hash'];
-
-    if (isDataLayer) {
-        out += formatDataLayerDetails(data);
-    } else {
-        // Add relevant data fields
-        for (const field of relevantFields) {
-            if (data[field]) {
-                out += `${field}: ${data[field]}\n`;
-            }
-        }
-
-        if (data.event_type) {
-            out += `Event Type: ${data.event_type}\n`;
-        }
-
-        // Debug: Log all data keys to console to see what's available
-        if (window.DEBUG_EVENT_TYPES) {
-            console.log('Event data keys:', Object.keys(data));
-            console.log('Event type value:', data.event_type);
-        }
-
-        // Add extra info (re-enabled for sGTM details)
-        if (data.extra_info && Array.isArray(data.extra_info)) {
-            out += `\nExtra Info:\n${data.extra_info.map(info => `  • ${info}`).join('\n')}\n`;
-        }
-
-        // Add mapped data (re-enabled for parameter mappings)
-        if (data.mapped_data && Object.keys(data.mapped_data).length > 0) {
-            out += `\nMapped Data:\n`;
-            for (const [key, value] of Object.entries(data.mapped_data)) {
-                out += `  ${key}: ${value}\n`;
-            }
-        }
-
-        if (data.debug_info) {
-            out += `\nDebug Info:\n${formatDebugInfo(data.debug_info)}`;
-        }
-
-        // Add JavaScript endpoint information
-        if (data.js_info) {
-            out += `\nJavaScript Info:\n`;
-            out += `  Type: ${data.js_info.type}\n`;
-            out += `  Description: ${data.js_info.description}\n`;
-            if (data.js_info.pattern) {
-                out += `  Pattern: ${data.js_info.pattern}\n`;
-            }
-        }
-    }
-
-    // Use shared metadata formatting with platform info for GA4 parameter validation
-    const detectedPlatform = platform || data.platform;
-    const metadataContent = formatMetadataSection(metadata, detectedPlatform);
-    if (metadataContent) {
-        out += `\n${metadataContent}`;
-    }
-
-    return out;
+    const eventType = isDataLayer ? 'datalayer' : 'generic';
+    return EventFormatter.format(eventType, data, metadata, { platform });
 }
 
 function formatDebugInfo(debugInfo) {
-    let out = '';
-    for (const [key, value] of Object.entries(debugInfo)) {
-        if (typeof value === 'object' && value !== null) {
-            out += `  ${key}:\n${prettyPrintNestedJson(value, 2)}`;
-        } else {
-            out += `  ${key}: ${value}\n`;
-        }
-    }
-    return out;
+    return EventFormatter.formatObject(debugInfo, 2);
 }
 
 function formatDataLayerDetails(data) {
-    let out = '';
-    if (data.event_name) out += `Event: ${data.event_name}\n`;
-    if (data.data_layer_data) {
-        out += `DataLayer Data:\n`;
-        for (const [key, value] of Object.entries(data.data_layer_data)) {
-            out += `  ${formatDataLayerValue(key, value)}\n`;
-        }
-    }
-    return out;
+    return EventFormatter.formatDataLayerEvent(data);
 }
 
 function formatDataLayerValue(key, value) {
@@ -657,117 +916,23 @@ function formatDataLayerValue(key, value) {
 }
 
 function formatDataLayerAsJSON(data) {
-    let out = '';
-    if (data.event_name) out += `Event: ${data.event_name}\n\n`;
-
-    // Print the entire data object as formatted JSON
-    out += `DataLayer Data:\n${JSON.stringify(data, null, 2)}`;
-
-    return out;
+    return EventFormatter.formatDataLayerEvent(data);
 }
 
 function formatCookieDetails(data, metadata) {
-    let out = '';
-
-    // Display the full request URL from metadata if available, as it provides context
-    if (metadata && metadata.request_url) {
-        out += `Request URL: ${metadata.request_url}\n`;
-    }
-
-    // Common fields for all cookie types
-    if (data.action) out += `Action: ${data.action}\n`;
-    if (data.path) out += `Path: ${data.path}\n`;
-    if (data.cookie_type) out += `Type: ${data.cookie_type}\n`;
-    if (data.cookie_count) out += `Count: ${data.cookie_count}\n`;
-    if (data.domain || data.host) out += `Domain: ${data.domain || data.host}\n`;
-
-    // Show cookie values for client-side cookies
-    if (data.cookie_type === 'client_side') {
-        if (data.new_value !== undefined) {
-            out += `New Value: ${data.new_value || '(empty)'}\n`;
-        }
-        if (data.old_value !== undefined) {
-            out += `Old Value: ${data.old_value || '(empty)'}\n`;
-        }
-    }
-
-    // Show cookie list for both server-side and client-side (now standardized)
-    if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
-        out += `\nCookies:\n`;
-        data.cookies.forEach((cookie, index) => {
-            out += `  ${index + 1}. ${cookie}\n`;
-        });
-    }
-
-    // Show full cookie headers (mainly for server-side)
-    if (data.full_cookies && Array.isArray(data.full_cookies)) {
-        out += `\nFull Cookie Headers:\n`;
-        data.full_cookies.forEach((cookie, index) => {
-            out += `  ${index + 1}. ${cookie}\n`;
-        });
-    }
-
-    return out;
+    return EventFormatter.format('cookie', data, metadata);
 }
 
 function formatUrlChangeDetails(data) {
-    let out = '';
-    const keyLabelMap = {
-        from_url: 'From',
-        previous_url: 'From',
-        to_url: 'To',
-        url: 'To',
-        title: 'Title',
-        description: 'Description',
-        navigation_type: 'Navigation Type',
-        referrer: 'Referrer',
-        user_agent: 'User Agent',
-        timestamp: 'Timestamp',
-        source: 'Source',
-        frame_id: 'Frame ID',
-        page_load_id: 'Page Load ID'
-    };
+    return EventFormatter.formatUrlChangeEvent(data);
+}
 
-    const printedLabels = new Set();
-
-    // Print details directly present in the data object
-    for (const [key, label] of Object.entries(keyLabelMap)) {
-        if (data[key] && !printedLabels.has(label)) {
-            out += `${label}: ${data[key]}\n`;
-            printedLabels.add(label); // Avoid printing 'From' or 'To' twice
-        }
-    }
-
-    // Parse and display query parameters from the URL, as they are critical for debugging
-    const currentUrl = data.to_url || data.url;
-    if (currentUrl) {
-        try {
-            const urlObj = new URL(currentUrl);
-            const params = Array.from(urlObj.searchParams.entries());
-            if (params.length > 0) {
-                out += `\nQuery Parameters:\n`;
-                params.forEach(([key, value]) => {
-                    const displayValue = value.length > 100 ? value.substring(0, 100) + '...' : value;
-                    out += `  ${key}: ${displayValue}\n`;
-                });
-            }
-        } catch (e) {
-            // Invalid URL, skip parameter parsing
-        }
-    }
-
-    return out;
+function formatResponseInfo(data, isError = false) {
+    return EventFormatter.formatResponseInfo(data, isError);
 }
 
 function getMarketingPixelSummary(data, event) {
     const platform = data.platform || 'Unknown';
-
-    // // Check if we have highlighting info with pre-formatted text
-    // if (data.highlight_info && data.highlight_info.should_highlight && data.highlight_info.highlight_text) {
-    //     const platformClass = getPlatformHighlightClass(data.platform);
-    //     // Use the pre-formatted highlight text from Python (which already includes platform, event, and pixel_id)
-    //     /return `<span class="universal-highlight ${platformClass}">${data.highlight_info.highlight_text}</span>`;
-    // }
 
     // Fallback to manual formatting
     let pixelId = '';
