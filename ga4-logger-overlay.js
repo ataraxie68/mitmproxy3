@@ -41,8 +41,6 @@ const DOM = {
 };
 
 // ===== CONFIGURATION =====
-// Debug flag - set to true to see event type debugging info
-window.DEBUG_EVENT_TYPES = false;
 
 let CONFIG = {
     // Default configuration - will be loaded from config.json
@@ -880,12 +878,11 @@ class EventFormatter {
 }
 
 // ===== BACKWARD COMPATIBILITY WRAPPER FUNCTIONS =====
+// Note: Most wrapper functions have been removed as they were just calling EventFormatter methods
+// Only keeping the ones that are actually used in the codebase
+
 function prettyPrintNestedJson(obj, indent = 2) {
     return EventFormatter.formatObject(obj, indent);
-}
-
-function formatMetadataSection(metadata, platform = null) {
-    return EventFormatter.format('raw', null, metadata, { showEventData: false, platform });
 }
 
 function prettyPrintDetailsRaw(metadata, data = null, platform = null) {
@@ -895,24 +892,6 @@ function prettyPrintDetailsRaw(metadata, data = null, platform = null) {
 function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false, platform = null) {
     const eventType = isDataLayer ? 'datalayer' : 'generic';
     return EventFormatter.format(eventType, data, metadata, { platform });
-}
-
-function formatDebugInfo(debugInfo) {
-    return EventFormatter.formatObject(debugInfo, 2);
-}
-
-function formatDataLayerDetails(data) {
-    return EventFormatter.formatDataLayerEvent(data);
-}
-
-function formatDataLayerValue(key, value) {
-    if (typeof value === 'object' && value !== null) {
-        if (Array.isArray(value)) {
-            return `${key}: [${value.length} items]`;
-        }
-        return `${key}: ${JSON.stringify(value)}`;
-    }
-    return `${key}: ${value}`;
 }
 
 function formatDataLayerAsJSON(data) {
@@ -925,10 +904,6 @@ function formatCookieDetails(data, metadata) {
 
 function formatUrlChangeDetails(data) {
     return EventFormatter.formatUrlChangeEvent(data);
-}
-
-function formatResponseInfo(data, isError = false) {
-    return EventFormatter.formatResponseInfo(data, isError);
 }
 
 function getMarketingPixelSummary(data, event) {
@@ -1024,8 +999,9 @@ const messageHandlers = {
         const confidence = data.confidence || 0;
         const reasons = data.reasons || [];
         const confidenceColor = getConfidenceColor(confidence);
+        const cmpVendor = data.cmp_vendor || 'Unknown CMP';
 
-        const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span>`;
+        const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span> - <span style="color: #007bff; font-weight: bold;">${cmpVendor}</span>`;
 
         const elementInfo = data.element_info || {};
         const position = data.position || {};
@@ -1033,13 +1009,15 @@ const messageHandlers = {
 
         const details = [
             'Cookie Banner Analysis:',
+            `CMP Vendor: ${cmpVendor}`,
             `Confidence: ${confidence}% (${reasons.join(', ')})`,
-            `Element: ${elementInfo.tagName || 'Unknown'} ${elementInfo.id ? `#${elementInfo.id}` : ''} ${elementInfo.className ? `.${elementInfo.className}` : ''}`,
-            `Position: ${Math.round(position.left || 0)}, ${Math.round(position.top || 0)} (${Math.round(position.width || 0)}×${Math.round(position.height || 0)})`,
-            `Styling: ${styling.position || 'static'}, z-index: ${styling.zIndex || 'auto'}`,
-            `Text Length: ${elementInfo.textLength || 0} characters`,
-            `Text Snippet: "${data.text_snippet || 'No text'}"`,
-            `Page URL: ${data.page_url || 'Unknown'}`,
+            `Detection Method: ${data.detection_method || 'Unknown'}`,
+            `Element: ${elementInfo.tagName || data.tag || 'Unknown'} ${elementInfo.id || data.id ? `#${elementInfo.id || data.id}` : ''} ${elementInfo.className || data.classes ? `.${elementInfo.className || data.classes}` : ''}`,
+            `Position: ${Math.round(position.left || data.bounding_rect?.left || 0)}, ${Math.round(position.top || data.bounding_rect?.top || 0)} (${Math.round(position.width || data.bounding_rect?.width || 0)}×${Math.round(position.height || data.bounding_rect?.height || 0)})`,
+            `Styling: ${styling.position || data.position || 'static'}, z-index: ${styling.zIndex || data.z_index || 'auto'}`,
+            `Text Length: ${elementInfo.textLength || (data.text_preview || '').length || 0} characters`,
+            `Text Snippet: "${data.text_snippet || data.text_preview || 'No text'}"`,
+            `Page URL: ${data.page_url || data.url || 'Unknown'}`,
             `Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`
         ].join('\n');
 
@@ -1104,30 +1082,9 @@ const messageHandlers = {
         renderMessage(summary, 'spa_navigation', icon, true, true, details, 'url-change-separator');
     },
 
-    'cookie_banner_summary': (logEntry) => {
-        const { data } = logEntry;
-        const icon = '📊';
-        const totalBanners = data.total_banners || 0;
-        const maxConfidence = data.max_confidence || 0;
-        const summaryColor = getConfidenceColor(maxConfidence);
 
-        const summary = `<b>Banner Detection Summary</b> - <span style="color: ${summaryColor};">${totalBanners} banner(s) found</span>`;
-        const details = [
-            'Detection Summary:',
-            `Total Banners Found: ${totalBanners}`,
-            `Highest Confidence: ${maxConfidence}%`,
-            `Page URL: ${data.page_url || 'Unknown'}`
-        ].join('\n');
 
-        renderMessage(summary, 'banner_summary', icon, true, false, details);
-    },
 
-    'banner_detector_status': (logEntry) => {
-        const { data } = logEntry;
-        const icon = '🔧';
-        const summary = `<b>Banner Detector</b> - ${data.message || 'Status update'}`;
-        renderMessage(summary, 'detector_status', icon, false, false, '');
-    },
 
     'marketing_pixel_event': (logEntry) => {
         const { event, data } = logEntry;
@@ -1445,24 +1402,7 @@ function hasStatusIcon(messageText) {
     return messageText.includes('✅') || messageText.includes('❌');
 }
 
-function formatResponseInfo(data, isError = false) {
-    const responseFields = [
-        { key: 'response_type', label: 'Response Type' },
-        { key: 'response_size', label: 'Response Size' },
-        { key: 'content_type', label: 'Content Type' },
-        { key: 'response_time', label: 'Response Time' },
-        { key: 'cache_control', label: 'Cache Control' },
-        { key: 'etag', label: 'ETag' }
-    ];
 
-    let info = '';
-    for (const field of responseFields) {
-        if (data[field.key]) {
-            info += `\n${field.label}: ${data[field.key]}`;
-        }
-    }
-    return info;
-}
 
 function findMessageByHash(messages, hash) {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -1533,7 +1473,7 @@ function updateRequestStatus(data) {
                 if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
                 if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
                 
-                statusInfo += formatResponseInfo(data, true);
+                statusInfo += EventFormatter.formatResponseInfo(data, true);
                 
                 if (window.DEBUG_RESPONSE_STATUS) {
                     console.log('Request status data:', data);
@@ -1546,7 +1486,7 @@ function updateRequestStatus(data) {
         // Handle successful requests with response info
         if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
             let responseInfo = `\n\n--- Response Info ---\nStatus: ${data.status_code} (Success)`;
-            responseInfo += formatResponseInfo(data, false);
+            responseInfo += EventFormatter.formatResponseInfo(data, false);
             detailsEl.textContent += responseInfo;
         }
     }
