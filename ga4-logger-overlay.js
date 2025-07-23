@@ -450,6 +450,9 @@ function highlightUniversalParameters(paramName, paramValue) {
 }
 
 function highlightLongParameters(detailsText, platform) {
+    console.log('highlightLongParameters called with platform:', platform);
+    console.log('Input text lines:', detailsText.split('\n').length);
+    
     const lines = detailsText.split('\n');
     const processedLines = lines.map(line => {
         const match = line.match(/^([^:]+):\s*(.+)$/);
@@ -458,8 +461,10 @@ function highlightLongParameters(detailsText, platform) {
             const paramValue = match[2].trim();
 
             if (platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM') {
+                console.log(`Checking parameter: ${paramName} = ${paramValue.substring(0, 30)}...`);
                 const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
                 if (lengthCheck) {
+                    console.log(`Length violation found for ${paramName}: ${lengthCheck.current}/${lengthCheck.limit}`);
                     const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
                     const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
                     return `${paramName}: ${paramValue}${warningText}`;
@@ -536,7 +541,10 @@ function formatMetadataSection(metadata, platform = null) {
         // Format raw data with parameter highlighting for GA4 platforms
         let rawDataText = `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
         if (platform && (platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM')) {
+            console.log('Applying parameter highlighting for platform:', platform);
+            console.log('Raw data before highlighting:', rawDataText.substring(0, 200));
             rawDataText = highlightLongParameters(rawDataText, platform);
+            console.log('Raw data after highlighting:', rawDataText.substring(0, 200));
         }
         out += rawDataText;
     }
@@ -960,6 +968,17 @@ const messageHandlers = {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
         const summary = getMarketingPixelSummary(data, event);
+        
+        // Debug logging for sGTM events
+        if (data.platform === 'sGTM' || data.platform === 'Server-side GTM') {
+            console.log('sGTM event detected:', {
+                platform: data.platform,
+                event: event,
+                metadata: logEntry.metadata,
+                hasRawData: !!(logEntry.metadata && logEntry.metadata.raw_data)
+            });
+        }
+        
         const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
         renderMessage(summary, data.platform, icon, true, false, details);
     },
