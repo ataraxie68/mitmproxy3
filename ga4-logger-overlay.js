@@ -515,7 +515,7 @@ function prettyPrintNestedJson(obj, indent = 2) {
     return JSON.stringify(processedObj, null, indent);
 }
 
-function formatMetadataSection(metadata) {
+function formatMetadataSection(metadata, platform = null) {
     let out = '';
     if (!metadata) return out;
 
@@ -532,21 +532,27 @@ function formatMetadataSection(metadata) {
         const rawDataForDisplay = { ...metadata.raw_data };
         delete rawDataForDisplay._request_path; // Remove redundant key
         delete rawDataForDisplay._request_host;
-        out += `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
+        
+        // Format raw data with parameter highlighting for GA4 platforms
+        let rawDataText = `Raw Data:\n${prettyPrintNestedJson(rawDataForDisplay, 1)}\n`;
+        if (platform && (platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM')) {
+            rawDataText = highlightLongParameters(rawDataText, platform);
+        }
+        out += rawDataText;
     }
 
     return out;
 }
 
-function prettyPrintDetailsRaw(metadata, data = null) {
-    let out = formatMetadataSection(metadata);
+function prettyPrintDetailsRaw(metadata, data = null, platform = null) {
+    let out = formatMetadataSection(metadata, platform);
     if (data) {
         out += `Data:\n${prettyPrintNestedJson(data, 1)}`;
     }
     return out;
 }
 
-function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
+function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false, platform = null) {
     let out = '';
     const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp', 'request_hash'];
 
@@ -598,8 +604,9 @@ function prettyPrintDetailsFlat(data, metadata = null, isDataLayer = false) {
         }
     }
 
-    // Use shared metadata formatting to eliminate duplication
-    const metadataContent = formatMetadataSection(metadata);
+    // Use shared metadata formatting with platform info for GA4 parameter validation
+    const detectedPlatform = platform || data.platform;
+    const metadataContent = formatMetadataSection(metadata, detectedPlatform);
     if (metadataContent) {
         out += `\n${metadataContent}`;
     }
@@ -825,7 +832,7 @@ const messageHandlers = {
 
         const actionText = action ? ` - <span class="action">${action}</span>` : '';
         const summary = `<span class="platform-name">Custom Platform</span> <b class="event-name">${event_name}</b>${actionText} (${requestHost}) <code>${requestPath}</code>`;
-        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false);
+        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
         
         // Debug: Check if metadata contains request_url
         if (window.DEBUG_CUSTOM_TRACKING && logEntry.metadata) {
@@ -953,7 +960,7 @@ const messageHandlers = {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
         const summary = getMarketingPixelSummary(data, event);
-        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.debug_info);
+        const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
         renderMessage(summary, data.platform, icon, true, false, details);
     },
 
@@ -1215,7 +1222,7 @@ const messageHandlers = {
         } else {
             // Generic violation handler
             const summary = `<b style="color: #F44336;">Compliance Violation</b> - ${event}`;
-            const details = prettyPrintDetailsFlat(data, logEntry.metadata, false);
+            const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
             renderMessage(summary, 'violation', icon, true, false, details);
         }
     }
