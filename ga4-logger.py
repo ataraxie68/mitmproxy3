@@ -50,7 +50,7 @@ PLATFORM_ID_FORMATTERS = {
 
 # Global state
 TARGET_DOMAIN: Optional[str] = os.environ.get('TARGET_DOMAIN')
-pending_requests: Dict[str, Dict] = {}  # Track pending tracking requests
+
 # platform_cache removed - now handled by platform_detector
 
 
@@ -89,12 +89,6 @@ class UnifiedLogger:
 # Global logger instance
 unified_logger = UnifiedLogger()
 
-def _generate_request_hash(url: str, post_data: str = "") -> str:
-    """Generate unique hash for request/response matching"""
-    # Combine URL and POST data for unique fingerprint
-    content = f"{url}|{post_data}"
-    return hashlib.md5(content.encode()).hexdigest()[:12]  # Short hash (12 chars)
-
 # Startup message
 unified_logger.log_info("GA4 + Marketing Pixel Logger with organized platform configuration ready!")
 unified_logger.log_info(f"Configured Platforms: {len(PLATFORMS)} ({', '.join(PLATFORMS.keys())})")
@@ -105,14 +99,12 @@ if TARGET_DOMAIN:
 unified_logger.log_info("-" * 50)
 
 
-def extract_event_info(data: Dict[str, str]) -> List[str]:
-    """Legacy function - now delegates to unified system"""
-    # For backward compatibility, create a temporary GA4 handler
-    from config import PLATFORMS
-    if "GA4" in PLATFORMS:
-        handler = GA4EventHandler(PLATFORMS["GA4"])
-        return handler._extract_ga4_event_info(data)
-    return []
+def _generate_request_hash(url: str, post_data: str = "", method: str = "") -> str:
+    """Generate unique hash for request/response matching"""
+    # Combine method, URL and POST data for unique fingerprint
+    content = f"{method}|{url}|{post_data}"
+    return hashlib.md5(content.encode()).hexdigest()[:12]  # Short hash (12 chars)
+
 
 # Unified Event Handler System
 class BaseEventHandler:
@@ -133,7 +125,7 @@ class BaseEventHandler:
         """Extract platform-specific information - can be overridden by subclasses"""
         extra_info = []
         
-        # Common extraction patterns
+        # Use platform-specific parameter mappings from config
         if value := mapped_data.get('value'):
             currency = mapped_data.get('currency', '')
             extra_info.append(self._format_value_currency(value, currency))
@@ -144,10 +136,21 @@ class BaseEventHandler:
         if content_ids := mapped_data.get('content_ids'):
             extra_info.append(f"ids: {content_ids[:20]}")
         
+        # Platform-specific additional parameters
+        if num_items := mapped_data.get('num_items'):
+            extra_info.append(f"items: {num_items}")
+        
+        if order_id := mapped_data.get('order_id'):
+            extra_info.append(f"order: {order_id}")
+        
+        if page_url := mapped_data.get('page_url'):
+            domain = page_url.split("//")[-1].split("/")[0] if "//" in page_url else page_url
+            extra_info.append(f"domain: {domain}")
+        
         return extra_info
     
     def _extract_ga4_event_info(self, data: Dict[str, str]) -> List[str]:
-        """Extract GA4-specific event information (moved from extract_event_info)"""
+        """Extract GA4-specific event information"""
         extra_info = []
         
         # Extract specific parameters
@@ -194,6 +197,12 @@ class GA4EventHandler(BaseEventHandler):
         if "gtag/js" in request_path:
             return data.get("id", ""), "gtag_library_load", "JavaScript Library"
         
+        # Tag Diagnostics (TD)
+        if "/td" in request_path:
+            pixel_id = data.get("id", "")
+            event_name = "tag_diagnostics"
+            return pixel_id, event_name, "Tag Diagnostics"
+        
         # Consent Mode (CCM)
         if "ccm/collect" in request_path:
             pixel_id = data.get("gtm") or f"CCM-{data.get('gcs', 'Unknown')}"
@@ -212,6 +221,21 @@ class GA4EventHandler(BaseEventHandler):
             if experiments := data.get("tag_exp"):
                 exp_count = len(experiments.split('~')) if experiments else 0
                 extra_info.append(f"Experiments: {exp_count}")
+            return extra_info
+        elif event_name == "tag_diagnostics":
+            extra_info = []
+            if version := data.get("v"): extra_info.append(f"Version: {version}")
+            if event_type := data.get("t"): extra_info.append(f"Type: {event_type}")
+            if page_id := data.get("pid"): extra_info.append(f"Page ID: {page_id}")
+            if sequence := data.get("seq"): extra_info.append(f"Sequence: {sequence}")
+            if experiments := data.get("exp"):
+                exp_count = len(experiments.split('~')) if experiments else 0
+                extra_info.append(f"Experiments: {exp_count}")
+            if tdp := data.get("tdp"): extra_info.append(f"Tag Data: {self._truncate_value(tdp, 20)}")
+            if mbc := data.get("mbc"): extra_info.append(f"MBC: {mbc}")
+            if page_url := data.get("dl"):
+                domain = page_url.split("//")[-1].split("/")[0] if "//" in page_url else page_url
+                extra_info.append(f"Domain: {domain}")
             return extra_info
         elif "ccm/collect" in str(data.get("_request_path", "")):
             extra_info = []
@@ -804,6 +828,85 @@ class CCMEventHandler(BaseEventHandler):
         return pixel_id, event_name, event_type
 
 
+class TaboolaEventHandler(BaseEventHandler):
+    """Specialized handler for Taboola events with flexible path detection"""
+    
+    def extract_identifiers(self, data: Dict[str, str]) -> tuple[str, str, str]:
+        pixel_id = data.get(self.config.pixel_id_key, "")
+        request_path = data.get("_request_path", "")
+        
+        # Extract publisher ID from path if present (e.g., /1532474/trc/3/json)
+        path_segments = request_path.split('/')
+        if len(path_segments) > 1 and path_segments[1].isdigit():
+            publisher_id = path_segments[1]
+            pixel_id = f"{publisher_id}" if not pixel_id else f"{pixel_id} (pub:{publisher_id})"
+        
+        # Determine event type based on URL path and parameters
+        if "/trc/" in request_path:
+            if "/json" in request_path:
+                event_name = "Taboola Tracking Event"
+                event_type = "JSON Tracking"
+            else:
+                event_name = "Taboola Pixel Fire"
+                event_type = "Pixel Tracking"
+        elif "/actions/" in request_path:
+            event_name = "Taboola Action Event"
+            event_type = "Action Tracking"
+        elif "/libtrc/" in request_path:
+            event_name = "Taboola Library Load"
+            event_type = "Library Loading"
+        else:
+            event_name = "Taboola Activity"
+            event_type = "General Tracking"
+        
+        return pixel_id, event_name, event_type
+    
+    def extract_platform_info(self, data: Dict[str, str], mapped_data: Dict[str, str], event_name: str = "") -> List[str]:
+        """Extract Taboola-specific information"""
+        extra_info = []
+        
+        # Extract data from the JSON payload if present
+        if tracking_data := data.get('data'):
+            try:
+                import json
+                import urllib.parse
+                decoded_data = urllib.parse.unquote(tracking_data)
+                json_data = json.loads(decoded_data)
+                
+                # Extract key information from the JSON payload
+                if 'u' in json_data:
+                    page_url = json_data['u']
+                    domain = page_url.split("//")[-1].split("/")[0] if "//" in page_url else page_url
+                    extra_info.append(f"domain: {domain}")
+                
+                if 'cv' in json_data:
+                    extra_info.append(f"version: {json_data['cv']}")
+                
+                if 'cbp' in json_data:
+                    extra_info.append(f"cmp: {json_data['cbp']}")
+                
+                if 'mpvd' in json_data and isinstance(json_data['mpvd'], dict):
+                    mpvd = json_data['mpvd']
+                    if 'en' in mpvd:
+                        extra_info.append(f"event: {mpvd['en']}")
+                    if 'it' in mpvd:
+                        extra_info.append(f"type: {mpvd['it']}")
+                
+            except (json.JSONDecodeError, KeyError):
+                pass
+        
+        # Standard parameter extraction
+        if value := mapped_data.get('value'):
+            currency = mapped_data.get('currency', '')
+            extra_info.append(f"value: {value} {currency}".strip())
+        
+        if page_url := mapped_data.get('page_url'):
+            domain = page_url.split("//")[-1].split("/")[0] if "//" in page_url else page_url
+            extra_info.append(f"domain: {domain}")
+        
+        return extra_info
+
+
 class ConsentManagementPlatformEventHandler(BaseEventHandler):
     """Generic handler for all Consent Management Platform events (OneTrust, Usercentrics, Cookiebot, etc.)"""
     
@@ -853,6 +956,8 @@ class ConsentManagementPlatformEventHandler(BaseEventHandler):
             "consensu.org": "ConsentManager", 
             "iubenda.com": "Iubenda",
             "cookie-script.com": "CookieScript",
+            "cdn.cookie-script.com": "CookieScript",
+            "consent.cookie-script.com": "CookieScript",
             "quantcast.com": "Quantcast",
             "trustarc.com": "TrustArc",
             "didomi": "Didomi"
@@ -925,6 +1030,7 @@ EVENT_HANDLERS = {
     "Pinterest": PinterestEventHandler,
     "Microsoft/Bing": MicrosoftBingEventHandler,
     "DoubleClick": DoubleClickEventHandler,
+    "Taboola": TaboolaEventHandler,
     "Privacy Sandbox": PrivacySandboxEventHandler,
     "Google Consent Collection": CCMEventHandler,
     "Consent Management Platform": ConsentManagementPlatformEventHandler
@@ -1055,12 +1161,10 @@ class UnifiedPlatformDetector:
         import re
         
         # GA4 paths that should be detected
-        ga4_paths = ["/g/collect", "/g/s/collect", "/collect", "/r/collect", "/gtag/js", "/mp/collect"]
+        ga4_paths = ["/g/collect", "/g/s/collect", "/collect", "/r/collect", "/gtag/js", "/mp/collect", "/td"]
         
         # Check if path matches GA4 patterns
-        path_matches = any(path.startswith(ga4_path) for ga4_path in ga4_paths)
-        
-        if not path_matches:
+        if not any(path.startswith(ga4_path) for ga4_path in ga4_paths):
             return False
         
         # Regional Google Analytics patterns
@@ -1072,14 +1176,18 @@ class UnifiedPlatformDetector:
         ]
         
         # Check if host matches any regional pattern
-        for pattern in regional_patterns:
-            if re.match(pattern, host):
-                return True
-        
-        return False
+        return any(re.match(pattern, host) for pattern in regional_patterns)
     
     def _detect_standard_platform(self, host: str, path: str) -> str:
         """Detect standard platforms using configuration"""
+        # Special handling for Taboola with flexible path matching
+        if host == "trc.taboola.com" and "/trc/" in path:
+            return "Taboola"
+        
+        # Special handling for GTM endpoints on any domain
+        if path == "/gtm.js" or path.startswith("/gtm.js?"):
+            return "GA4"  # GTM is part of GA4 ecosystem
+        
         # First pass: Find platforms that match both host AND path (highest priority)
         for platform_name, config in PLATFORMS.items():
             if host in config.hosts:
@@ -1095,33 +1203,16 @@ class UnifiedPlatformDetector:
         # Return "Custom Tracking" instead of "Unknown" for proper response handling
         return "Custom Tracking"
     
-    def _is_server_side_gtm(self, host: str, path: str, flow: http.HTTPFlow) -> bool:
-        """Integrated server-side GTM detection based only on parameters."""
-        # Skip if already known GA4 or DoubleClick hosts.
-        # This check is now less relevant as the primary detection is parameter-based,
-        # but it can serve as a quick exit path.
-        if host in PLATFORMS["GA4"].hosts or host in PLATFORMS["DoubleClick"].hosts:
-            return False
-        
-        # Use consolidated parameter extraction
-        params = self._get_all_params(flow)
-        
-        # Use unified server-side detection logic (which is now parameter-based)
-        detection_result = self._detect_server_side_tracking(host, path, params, advanced_scoring=True)
-        
-        if detection_result["is_server_side"] and detection_result["platform"] == "sGTM":
-            if DEBUG_MODE:
-                unified_logger.log_debug(f"[SGTM DETECTION] Host: {host}, Path: {path}, Score: {detection_result['score']}")
-            return True
-        
-        return False
-    
     def _check_server_side_tracking(self, host: str, path: str, flow: http.HTTPFlow) -> str:
         """Check server-side tracking and return platform name or None"""
         # Skip if already known platform hosts - prevent misclassification
         known_platform_hosts = set()
         for platform_config in PLATFORMS.values():
             known_platform_hosts.update(platform_config.hosts)
+        
+        # Special handling for Taboola - exclude from server-side detection
+        if host == "trc.taboola.com" and "/trc/" in path:
+            return None
         
         if host in known_platform_hosts:
             return None
@@ -1165,110 +1256,116 @@ class UnifiedPlatformDetector:
     
     def _has_tracking_indicators(self, params: Dict[str, str]) -> bool:
         """Check if parameters contain tracking indicators using enhanced config"""
-        # Enhanced tracking detection with multiple parameter categories
-        
         # Check GA4/sGTM parameters (most common)
-        ga4_indicators = SGTM_INDICATORS['ga4_params']
-        if sum(1 for p in ga4_indicators if p in params) >= 2:
+        if self._count_matching_params(params, SGTM_INDICATORS['ga4_params']) >= 2:
             return True
         
         # Check for event parameters (strong indicator of tracking)
-        event_indicators = SGTM_INDICATORS['eventParams']
-        if any(p in params for p in event_indicators):
+        if self._has_any_params(params, SGTM_INDICATORS['eventParams']):
             return True
         
         # Check for tracking parameters (user/session identification)
-        tracking_indicators = SGTM_INDICATORS['trackingParams']
-        if sum(1 for p in tracking_indicators if p in params) >= 2:
+        if self._count_matching_params(params, SGTM_INDICATORS['trackingParams']) >= 2:
             return True
         
         # Check consent and server GTM parameters
-        consent_indicators = SGTM_INDICATORS['consent_params']
-        server_gtm_indicators = SGTM_INDICATORS['serverGtmParams']
-        if any(p in params for p in consent_indicators) and \
-           any(p in params for p in server_gtm_indicators):
+        if (self._has_any_params(params, SGTM_INDICATORS['consent_params']) and 
+            self._has_any_params(params, SGTM_INDICATORS['serverGtmParams'])):
             return True
         
         # Check for session + value combination (e-commerce tracking)
-        session_indicators = SGTM_INDICATORS['sessionParams']
-        value_indicators = SGTM_INDICATORS['valueParams']
-        if any(p in params for p in session_indicators) and \
-           any(p in params for p in value_indicators):
+        if (self._has_any_params(params, SGTM_INDICATORS['sessionParams']) and 
+            self._has_any_params(params, SGTM_INDICATORS['valueParams'])):
             return True
         
         # Check for e-commerce parameters
-        ecommerce_indicators = SGTM_INDICATORS['ecommerceParams']
-        if sum(1 for p in ecommerce_indicators if p in params) >= 2:
+        if self._count_matching_params(params, SGTM_INDICATORS['ecommerceParams']) >= 2:
             return True
         
         # Check platform-specific key parameters from config
-        platform_key_params = set()
-        for platform_config in PLATFORMS.values():
-            platform_key_params.update([
-                platform_config.pixel_id_key,
-                platform_config.event_name_key
-            ])
-        
-        # If we have pixel_id + event_name from any platform, it's likely tracking
-        matching_platform_params = sum(1 for p in platform_key_params if p in params)
-        if matching_platform_params >= 2:
+        platform_key_params = self._get_platform_key_params()
+        if self._count_matching_params(params, platform_key_params) >= 2:
             return True
         
         return False
     
+    def _count_matching_params(self, params: Dict[str, str], indicators: List[str]) -> int:
+        """Count how many indicator parameters are present"""
+        return sum(1 for p in indicators if p in params)
+    
+    def _has_any_params(self, params: Dict[str, str], indicators: List[str]) -> bool:
+        """Check if any indicator parameters are present"""
+        return any(p in params for p in indicators)
+    
+    def _get_platform_key_params(self) -> List[str]:
+        """Get all platform-specific key parameters from config"""
+        platform_key_params = []
+        for platform_config in PLATFORMS.values():
+            platform_key_params.extend([
+                platform_config.pixel_id_key,
+                platform_config.event_name_key
+            ])
+        return platform_key_params
+    
     def _detect_server_side_tracking(self, host: str, path: str, params: Dict[str, str], advanced_scoring: bool = False) -> Dict[str, Union[bool, str, int]]:
         """Unified server-side tracking detection based only on parameters."""
-        # All host and path checks have been removed as per user request.
-
         if advanced_scoring:
-            # Advanced sGTM detection with scoring based only on parameters.
-            
-            # Parameter analysis for sGTM
-            gtm_id = params.get('gtm', '')
-            # GTM parameter can be either a standard container ID or a hashed container ID
-            has_gtm_container = bool(gtm_id and (
-                any(gtm_id.startswith(p) for p in SGTM_INDICATORS['gtm_id_prefixes']) or
-                len(gtm_id) > 10  # Hashed container IDs are typically long
-            ))
-            
-            tid_value = params.get('tid', '')
-            has_tracking_id = tid_value and any(tid_value.startswith(p) for p in SGTM_INDICATORS['tracking_id_prefixes'])
-            
-            # Enhanced scoring for sGTM with new parameter categories
-            score = 0
-            # Host and path scoring removed.
-            if has_gtm_container: score += 4
-            if has_tracking_id: score += 2
-            if sum(1 for p in SGTM_INDICATORS['ga4_params'] if p in params) >= 3: score += 2
-            if any(p in params for p in SGTM_INDICATORS['consent_params']): score += 1
-            if sum(1 for p in SGTM_INDICATORS['serverGtmParams'] if p in params) >= 1: score += 2
-            
-            # Enhanced parameter detection
-            if any(p in params for p in SGTM_INDICATORS['eventParams']): score += 3  # Event parameters are strong indicators
-            if sum(1 for p in SGTM_INDICATORS['trackingParams'] if p in params) >= 2: score += 2
-            if any(p in params for p in SGTM_INDICATORS['sessionParams']): score += 1
-            if any(p in params for p in SGTM_INDICATORS['valueParams']): score += 1
-            if sum(1 for p in SGTM_INDICATORS['ecommerceParams'] if p in params) >= 2: score += 2
-            if any(p in params for p in SGTM_INDICATORS['timestampParams']): score += 1
-            
-            # Legacy specific checks
-            if 'en' in params and 'cid' in params: score += 1
-            if 'gcs' in params: score += 1
-            
-            if DEBUG_MODE:
-                unified_logger.log_debug(f"[SGTM SCORE] Host: {host}, Path: {path}, Score: {score}, GTM: {has_gtm_container}, TID: {has_tracking_id}")
-            
-            return {
-                "is_server_side": score >= 1,
-                "platform": "sGTM" if score >= 3 else "Custom Tracking",
-                "score": score
-            }
+            return self._advanced_server_side_detection(host, path, params)
         else:
             # Basic server-side tracking detection based only on parameters.
             if self._has_tracking_indicators(params):
                 return {"is_server_side": True, "platform": "Custom Tracking", "score": 1}
         
         return {"is_server_side": False, "platform": "None", "score": 0}
+    
+    def _advanced_server_side_detection(self, host: str, path: str, params: Dict[str, str]) -> Dict[str, Union[bool, str, int]]:
+        """Advanced sGTM detection with scoring based only on parameters."""
+        # Parameter analysis for sGTM
+        gtm_id = params.get('gtm', '')
+        has_gtm_container = bool(gtm_id and (
+            any(gtm_id.startswith(p) for p in SGTM_INDICATORS['gtm_id_prefixes']) or
+            len(gtm_id) > 10  # Hashed container IDs are typically long
+        ))
+        
+        tid_value = params.get('tid', '')
+        has_tracking_id = tid_value and any(tid_value.startswith(p) for p in SGTM_INDICATORS['tracking_id_prefixes'])
+        
+        # Enhanced scoring for sGTM
+        score = self._calculate_sgtm_score(params, has_gtm_container, has_tracking_id)
+        
+        if DEBUG_MODE:
+            unified_logger.log_debug(f"[SGTM SCORE] Host: {host}, Path: {path}, Score: {score}, GTM: {has_gtm_container}, TID: {has_tracking_id}")
+        
+        return {
+            "is_server_side": score >= 1,
+            "platform": "sGTM" if score >= 3 else "Custom Tracking",
+            "score": score
+        }
+    
+    def _calculate_sgtm_score(self, params: Dict[str, str], has_gtm_container: bool, has_tracking_id: bool) -> int:
+        """Calculate sGTM detection score based on parameters"""
+        score = 0
+        
+        # Core sGTM indicators
+        if has_gtm_container: score += 4
+        if has_tracking_id: score += 2
+        if self._count_matching_params(params, SGTM_INDICATORS['ga4_params']) >= 3: score += 2
+        if self._has_any_params(params, SGTM_INDICATORS['consent_params']): score += 1
+        if self._count_matching_params(params, SGTM_INDICATORS['serverGtmParams']) >= 1: score += 2
+        
+        # Enhanced parameter detection
+        if self._has_any_params(params, SGTM_INDICATORS['eventParams']): score += 3  # Event parameters are strong indicators
+        if self._count_matching_params(params, SGTM_INDICATORS['trackingParams']) >= 2: score += 2
+        if self._has_any_params(params, SGTM_INDICATORS['sessionParams']): score += 1
+        if self._has_any_params(params, SGTM_INDICATORS['valueParams']): score += 1
+        if self._count_matching_params(params, SGTM_INDICATORS['ecommerceParams']) >= 2: score += 2
+        if self._has_any_params(params, SGTM_INDICATORS['timestampParams']): score += 1
+        
+        # Legacy specific checks
+        if 'en' in params and 'cid' in params: score += 1
+        if 'gcs' in params: score += 1
+        
+        return score
     
     def clear_cache(self):
         """Clear detection cache and clean up dynamic hosts"""
@@ -1278,16 +1375,81 @@ class UnifiedPlatformDetector:
                               if v in ["GA4", "Facebook", "TikTok", "Google Ads", "sGTM"]}
             self.platform_cache.clear()
             self.platform_cache.update(common_platforms)
+    
+    def is_tracking_request(self, flow: http.HTTPFlow) -> bool:
+        """Check if a request is a tracking request based only on parameters."""
+        # Auto-detect server-side tracking patterns first, as they are the most reliable.
+        if self.is_server_side_tracking_request(flow):
+            return True
+
+        # Then check for known tracking paths as a fallback.
+        host = flow.request.pretty_host
+        path = flow.request.path
+        
+        # More flexible path matching for tracking requests
+        if host in ALL_HOSTS:
+            # First try exact startswith matching
+            if any(path.startswith(tracking_path) for tracking_path in ALL_PATHS):
+                return True
+            
+            # Then try more flexible matching for common tracking patterns
+            for tracking_path in ALL_PATHS:
+                # Remove trailing slashes for comparison
+                clean_tracking_path = tracking_path.rstrip('/')
+                clean_request_path = path.rstrip('/').split('?')[0]  # Remove query params
+                
+                # Check if the path contains the tracking path segment
+                if (clean_tracking_path in clean_request_path or 
+                    clean_request_path.startswith(clean_tracking_path) or
+                    # Handle cases like "/api/v1/settings" matching "/api/"
+                    (clean_tracking_path.endswith('/') and clean_request_path.startswith(clean_tracking_path.rstrip('/')))):
+                    return True
+
+        # Debug logging for tracking request detection failures
+        if DEBUG_MODE and host in ALL_HOSTS:
+            unified_logger.log_debug(f"Host {host} found in ALL_HOSTS but path {path} not matched. Available paths: {list(ALL_PATHS)}")
+        
+        return False
+    
+    def is_server_side_tracking_request(self, flow: http.HTTPFlow) -> bool:
+        """Auto-detect server-side tracking requests based only on parameters."""
+        host = flow.request.pretty_host
+        path = flow.request.path
+        
+        # Use unified detection logic from platform detector, which is now parameter-based
+        params = self._get_all_params(flow)
+        detection_result = self._detect_server_side_tracking(host, path, params, advanced_scoring=False)
+        
+        if detection_result["is_server_side"]:
+            return True
+                
+        return False
+    
+    def is_server_side_gtm_request(self, host: str, path: str, flow: http.HTTPFlow) -> bool:
+        """Check if this is a server-side GTM request"""
+        # Skip if already known GA4 or DoubleClick hosts
+        if host in PLATFORMS["GA4"].hosts or host in PLATFORMS["DoubleClick"].hosts:
+            return False
+        
+        # Use consolidated parameter extraction
+        params = self._get_all_params(flow)
+        
+        # Use unified server-side detection logic
+        detection_result = self._detect_server_side_tracking(host, path, params, advanced_scoring=True)
+        
+        if detection_result["is_server_side"] and detection_result["platform"] == "sGTM":
+            if DEBUG_MODE:
+                unified_logger.log_debug(f"[SGTM DETECTION] Host: {host}, Path: {path}, Score: {detection_result['score']}")
+            return True
+        
+        return False
+    
+  
             
 
 
 # Global detector instance
 platform_detector = UnifiedPlatformDetector()
-
-
-def detect_platform_from_host_and_path(host: str, path: str, flow: http.HTTPFlow = None) -> str:
-    """Detect marketing platform from hostname AND path - handles conflicts like www.google.com"""
-    return platform_detector.detect_platform(host, path, flow)
 
 def get_param_map_for_platform(platform: str) -> Dict[str, str]:
     """Legacy function - now uses unified system"""
@@ -1346,112 +1508,14 @@ def _format_pixel_id(pixel_id: str, platform: str) -> Dict[str, str]:
         "formatted": f"{pixel_id} ({platform})"
     }
 
-def detect_javascript_endpoint(platform: str, request_path: str, request_url: str) -> Optional[Dict[str, str]]:
-    """Detect if this is a JavaScript endpoint and return information about it"""
-    js_patterns = {
-        "Microsoft/Bing": {
-            "/p/insights/c/j": "Bing Analytics JavaScript - Dynamic tracking code",
-            "/p/insights/s/": "Bing Analytics Script Library - Versioned tracking library",
-            "/p/insights/t/": "Bing UET Tag Insights - Event tracking endpoint",
-            "/bat.js": "Bing Ads Tag JavaScript - UET tracking library",
-            "/uet.js": "Universal Event Tracking JavaScript - Core tracking code"
-        },
-        "GA4": {
-            "/gtag/js": "Google Analytics JavaScript - gtag library",
-            "/gtm.js": "Google Tag Manager JavaScript - Container code"
-        },
-        "Facebook": {
-            "/tr/": "Facebook Pixel JavaScript - Dynamic tracking code",
-            "/sdk.js": "Facebook JavaScript SDK"
-        }
-    }
-    
-    # Check for common JavaScript file extensions and script paths
-    if (request_path.endswith(('.js', '.json')) or 
-        '/js' in request_path or 
-        '/c/j' in request_path or 
-        '/s/' in request_path):
-        platform_patterns = js_patterns.get(platform, {})
-        
-        # Check for specific patterns
-        for pattern, description in platform_patterns.items():
-            if pattern in request_path:
-                return {
-                    "is_javascript": True,
-                    "type": "JavaScript Library",
-                    "description": description,
-                    "pattern": pattern
-                }
-        
-        # Generic JavaScript detection
-        return {
-            "is_javascript": True,
-            "type": "JavaScript/JSON Response",
-            "description": f"{platform} script or configuration file",
-            "pattern": "Generic JS/JSON endpoint"
-        }
-    
-    return None
 
-def get_request_description(platform: str, event_name: str, data: Dict[str, str], request_path: Optional[str] = None) -> Optional[str]:
-    """Generate descriptive text for special request types to display in details panel"""
-    
-    # Get base platform description from config
-    base_description = None
-    if platform in PLATFORMS:
-        base_description = PLATFORMS[platform].description
-    
-    # Add special context for specific request types
-    if platform == "GA4":
-        # GTM Library Loading
-        if event_name == "gtag_library_load":
-            ga4_id = data.get("id", "")
-            return (f"Google Tag Manager library loading request for GA4 property {ga4_id}. "
-                   f"This loads the gtag.js JavaScript library required for GA4 tracking and "
-                   f"initializes the measurement framework.")
-        
-        # Consent Mode (CCM) Requests
-        elif request_path and "ccm/collect" in request_path:
-            gdpr_status = "GDPR applies" if data.get("gdpr") == "1" else "Non-GDPR region"
-            consent_mode = data.get("gcs", "Unknown")
-            dma_status = "DMA compliance active" if data.get("dma") == "1" else "No DMA requirements"
-            
-            return (f"GA4 Consent Mode request - Privacy-compliant tracking with limited data collection. "
-                   f"{gdpr_status}. Consent state: {consent_mode}. {dma_status}. "
-                   f"This endpoint respects user privacy preferences and regulatory requirements "
-                   f"by collecting only essential analytics data when full consent is not available.")
-        
-        # Legacy Universal Analytics warning
-        elif data.get("tid", "").startswith("UA-"):
-            return (f"Legacy Universal Analytics {event_name} event. "
-                   f"Note: Universal Analytics was sunset in July 2023. Consider migrating to GA4.")
-    
-    elif platform == "Google Ads":
-        # Add specific context for Google Ads request types
-        if "conversion" in str(request_path):
-            return f"{base_description} This is a conversion tracking request recording valuable user actions."
-        elif data.get("t") == "sr" or "ga-audiences" in str(request_path):
-            return f"{base_description} This is a remarketing request building audience lists for retargeting."
-    
-    elif platform == "Facebook":
-        # Add specific context for Facebook event types
-        fb_event_contexts = {
-            "PageView": "This tracks basic page views for analytics and audience building.",
-            "Purchase": "This tracks e-commerce purchases for conversion optimization.",
-            "AddToCart": "This tracks shopping cart additions for retargeting campaigns.",
-            "Lead": "This tracks lead generation events like form submissions.",
-            "CompleteRegistration": "This tracks user registration completions.",
-            "ViewContent": "This tracks product/content views for remarketing."
-        }
-        
-        context = fb_event_contexts.get(event_name, f"This tracks the custom '{event_name}' event.")
-        return f"{base_description} {context}"
-    
-    # For all other platforms, return the base description from config
-    return base_description
 
 
 # Utility functions for common patterns
+def _is_static_asset(path: str) -> bool:
+    """Check if path is a static asset that should be excluded from processing"""
+    return (path.lower().endswith(('.js', '.html', '.css', '.js.map', '.css.map', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot')) )
+
 def _extract_adwords_id(request_path: str) -> Optional[str]:
     """Extract AdWords ID from URL path patterns"""
     patterns = [
@@ -1469,135 +1533,40 @@ def _extract_adwords_id(request_path: str) -> Optional[str]:
 # Legacy functions - consolidated into unified system
 
 
-def extract_platform_identifiers(data: Dict[str, str], platform: str) -> tuple[str, str, str]:
-    """Legacy function - now uses unified handler system"""
-    handler = get_event_handler(platform)
-    return handler.extract_identifiers(data)
-
-def _get_highlight_info(pixel_id: str, platform: str, event_name: str) -> Dict[str, str]:
-    """Generate universal highlighting information for all platforms"""
-    highlight_info = {
-        "primary_id": pixel_id,
-        "platform": platform,
-        "event_name": event_name,
-        "highlight_text": "",
-        "should_highlight": False
-    }
-    
-    # Only highlight if we have a valid pixel_id
-    if not pixel_id or pixel_id == "Unknown":
-        return highlight_info
-    
-    # Create platform-specific highlighting text
-    platform_colors = {
-        "GA4": "#EA4335",
-        "Facebook": "#1877F2", 
-        "TikTok": "#000000",
-        "LinkedIn": "#0077B5",
-        "Twitter/X": "#1DA1F2",
-        "Pinterest": "#E60023",
-        "Snapchat": "#FFFC00",
-        "Microsoft/Bing": "#00BCF2",
-        "Google Ads": "#4285F4",
-        "DoubleClick": "#4285F4",
-        "Amazon": "#FF9900",
-        "Criteo": "#F68B1E",
-        "Reddit": "#FF4500",
-        "Quora": "#B92B27",
-        "Outbrain": "#0070F3",
-        "Taboola": "#1A73E8",
-        "sGTM": "#EA4335",
-        "Server-side GTM": "#EA4335",
-        "Privacy Sandbox": "#34A853"
-    }
-    
-    # Generate highlighting text based on platform
-    color = platform_colors.get(platform, "#6366F1")
-    
-    if platform == "GA4":
-        # GA4 specific highlighting
-        if pixel_id.startswith("G-"):
-            highlight_info["highlight_text"] = f"GA4 {event_name} {pixel_id}"
-        elif pixel_id.startswith("UA-"):
-            highlight_info["highlight_text"] = f"UA {event_name} {pixel_id}"
-        elif pixel_id.startswith("CCM-"):
-            highlight_info["highlight_text"] = f"CCM {event_name} {pixel_id}"
-        else:
-            highlight_info["highlight_text"] = f"GA4 {event_name} {pixel_id}"
-    
-    elif platform == "Facebook":
-        # Facebook specific highlighting - match the screenshot format
-        if pixel_id.isdigit() and len(pixel_id) >= 15:
-            highlight_info["highlight_text"] = f"Facebook PageView {pixel_id}"
-        else:
-            highlight_info["highlight_text"] = f"Facebook {event_name} {pixel_id}"
-    
-    elif platform == "LinkedIn":
-        # LinkedIn specific highlighting
-        if pixel_id.isdigit():
-            highlight_info["highlight_text"] = f"LinkedIn {event_name} {pixel_id}"
-        else:
-            highlight_info["highlight_text"] = f"LinkedIn {event_name} {pixel_id}"
-    
-    elif platform == "Microsoft/Bing":
-        # Microsoft/Bing specific highlighting
-        if pixel_id.isdigit():
-            highlight_info["highlight_text"] = f"Microsoft/Bing {event_name} {pixel_id}"
-        else:
-            highlight_info["highlight_text"] = f"Microsoft/Bing {event_name} {pixel_id}"
-    
-    else:
-        # Generic highlighting for other platforms
-        highlight_info["highlight_text"] = f"{platform} {event_name} {pixel_id}"
-    
-    highlight_info["should_highlight"] = True
-    highlight_info["color"] = color
-    
-    return highlight_info
-
-def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_path: Optional[str] = None, request_url: Optional[str] = None, post_data: str = "") -> None:
+def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_path: Optional[str] = None, request_url: Optional[str] = None, post_data: str = "", method: str = "") -> None:
     """Process a marketing pixel event from any platform"""
     unified_logger.log_debug(f"Processing {platform} event with {len(data)} parameters")
     
-    param_map = get_param_map_for_platform(platform)
+    # Get platform handler and extract identifiers
+    handler = get_event_handler(platform)
+    pixel_id, event_name, event_type = handler.extract_identifiers(data)
     
-    # Map platform parameters to friendly names
-    mapped_data = {}
-    for platform_key, friendly_name in param_map.items():
-        if platform_key in data:
-            mapped_data[friendly_name] = data[platform_key]
-    
-
-    pixel_id, event_name, event_type = extract_platform_identifiers(data, platform)
-
     unified_logger.log_debug(f"{event_name}, {pixel_id}, {platform}")
     
     # Handle validation errors and unknown requests
     if event_name == "Unknown" and not pixel_id:
-        # Generate unique hash for request/response matching
-        request_hash = _generate_request_hash(request_url or "", post_data)
-   
-        # Standardized error event data structure
+        request_hash = _generate_request_hash(request_url or "", post_data, method)
         error_event_data = {
             "platform": platform,
-            "pixel_id": "",  # Empty since missing
+            "pixel_id": "",
             "event_type": "",
             "message": f"Missing {platform} event name and pixel ID",
-            "request_hash": request_hash  # Add hash for response matching
+            "request_hash": request_hash
         }
-        # Filter out internal request metadata from raw_data
         clean_data = {k: v for k, v in data.items() if not k.startswith('_request_')}
-        
         unified_logger.log_structured("custom_tracking", "not defined", error_event_data, 
                                       {"request_path": request_path, "raw_data": clean_data, "request_url": request_url})
         return
     
-    # Additional debugging for missing event names (when pixel_id exists but event_name is Unknown)
+    # Additional debugging for missing event names
     if event_name == "Unknown" and pixel_id:
         unified_logger.log_debug(f"Warning: {platform} pixel_id found ({pixel_id}) but event_name is Unknown. Available params: {list(data.keys())}")
     
-    # Extract platform-specific information using unified function
-    extra_info = extract_platform_specific_info(data, platform, mapped_data, event_name)
+    # Get parameter mapping and extract platform-specific information
+    param_map = get_param_map_for_platform(platform)
+    mapped_data = {param_map[platform_key]: data[platform_key] 
+                   for platform_key in param_map if platform_key in data}
+    extra_info = handler.extract_platform_info(data, mapped_data, event_name)
     
     # Format property/account ID
     try:
@@ -1606,141 +1575,60 @@ def process_marketing_pixel_event(data: Dict[str, str], platform: str, request_p
         unified_logger.log_error(f"Property detection error: {e}")
         property_info = {"id": pixel_id, "type": "Unknown", "formatted": pixel_id}
     
-    # Log to terminal for all marketing pixels with formatted property ID
-    property_display = property_info["formatted"] if property_info["formatted"] else pixel_id
+    # Log to terminal
+    property_display = property_info["formatted"] or pixel_id
     unified_logger.log_info(f"{platform} {event_name} ({property_display})")
     
-    # Add highlighting info for universal highlighting system
-    highlight_info = _get_highlight_info(pixel_id, platform, event_name)
-    
-    # Process successful event (all platforms) - unified log type
-    log_type = "marketing_pixel_event"
-    
-    # Generate unique hash for request/response matching
-    request_hash = _generate_request_hash(request_url or "", post_data)
-    
+    # Build event data
+    request_hash = _generate_request_hash(request_url or "", post_data, method)
     event_data = {
         "platform": platform,
         "pixel_id": pixel_id,  # Keep for backwards compatibility
         "property_id": property_info["id"],
         "property_type": property_info["type"],
         "property_formatted": property_info["formatted"],
-        "event_type": event_type,  # New field for event classification
+        "event_type": event_type,
         "extra_info": extra_info,
         "page_url": data.get("dl", data.get("url", data.get("u", ""))),
         "referrer_url": data.get("rl", data.get("ref", data.get("rf", ""))),
         "mapped_data": mapped_data,
-        "highlight_info": highlight_info,
-        "request_hash": request_hash  # Unique hash for matching
+        "request_hash": request_hash,
+        "request_method": method
     }
     
-    # Add descriptive text for special request types
-    request_description = get_request_description(platform, event_name, data, request_path)
-    if request_description:
-        event_data["description"] = request_description
     
-    # Detect JavaScript endpoints
-    js_info = detect_javascript_endpoint(platform, request_path, request_url)
-    if js_info:
-        event_data["js_info"] = js_info
-    
-    # Add GA4-specific fields (maintain backwards compatibility)
-    if platform == "GA4":
-        event_data.update({
-            "tracking_id": pixel_id,  # Keep for backwards compatibility
-            "client_id": data.get("cid", ""),
-            "products": parse_product_data(data),
-            "page_location": data.get("dl", ""),
-            "page_title": data.get("dt", "")
-
-        })
-
-    # if (data.get("gcs", "")):
-    #     event_data.update({data.get("gcs", "")})
-    
-    
-    # Filter out internal request metadata from raw_data
+    # Filter out internal request metadata and log
     clean_data = {k: v for k, v in data.items() if not k.startswith('_request_')}
-    
-    unified_logger.log_structured(log_type, event_name, event_data, 
+    unified_logger.log_structured("marketing_pixel_event", event_name, event_data, 
                                   {"request_path": request_path, "raw_data": clean_data, "request_url": request_url})
 
 
 
-def is_tracking_request(flow: http.HTTPFlow) -> bool:
-    """Check if a request is a tracking request based only on parameters."""
-    # This function now primarily relies on parameter-based detection.
-    # The host and path checks are secondary.
-    
-    # Auto-detect server-side tracking patterns first, as they are the most reliable.
-    if is_server_side_tracking_request(flow):
-        return True
-
-    # Then check for known tracking paths as a fallback.
-    host = flow.request.pretty_host
-    path = flow.request.path
-    
-    # More flexible path matching for tracking requests
-    if host in ALL_HOSTS:
-        # First try exact startswith matching
-        if any(path.startswith(tracking_path) for tracking_path in ALL_PATHS):
-            return True
-        
-        # Then try more flexible matching for common tracking patterns
-        for tracking_path in ALL_PATHS:
-            # Remove trailing slashes for comparison
-            clean_tracking_path = tracking_path.rstrip('/')
-            clean_request_path = path.rstrip('/').split('?')[0]  # Remove query params
-            
-            # Check if the path contains the tracking path segment
-            if (clean_tracking_path in clean_request_path or 
-                clean_request_path.startswith(clean_tracking_path) or
-                # Handle cases like "/api/v1/settings" matching "/api/"
-                (clean_tracking_path.endswith('/') and clean_request_path.startswith(clean_tracking_path.rstrip('/')))):
-                return True
-
-    # Debug logging for tracking request detection failures
-    if DEBUG_MODE and host in ALL_HOSTS:
-        unified_logger.log_debug(f"Host {host} found in ALL_HOSTS but path {path} not matched. Available paths: {list(ALL_PATHS)}")
-    
-    return False
-
-
-def is_server_side_tracking_request(flow: http.HTTPFlow) -> bool:
-    """Auto-detect server-side tracking requests based only on parameters."""
-    host = flow.request.pretty_host
-    path = flow.request.path
-    
-    # Use unified detection logic from platform detector, which is now parameter-based
-    params = platform_detector._get_all_params(flow)
-    detection_result = platform_detector._detect_server_side_tracking(host, path, params, advanced_scoring=False)
-    
-    if detection_result["is_server_side"]:
-        return True
-            
-    return False
-
-
-def is_server_side_gtm_request(host: str, path: str, flow: http.HTTPFlow) -> bool:
-    """Legacy function - now uses unified detector"""
-    return platform_detector._is_server_side_gtm(host, path, flow)
-
 
 class UnifiedResponseProcessor:
-    """Unified response processing for tracking and cookie handling"""
+    """Optimized unified response processing for tracking and cookie handling"""
+    
+    # Class-level constants for better performance
+    SUCCESS_STATUS_CODES = {200, 204, 302}
+    JS_CONTENT_TYPES = {
+        "javascript", "application/js", "text/js", 
+        "application/javascript", "text/javascript",
+        "application/x-javascript", "text/x-javascript"
+    }
+    JS_PATH_PATTERNS = {'/gtm.js', '/gtag/js', '/analytics.js', '/ga.js', '/bat.js', '/uet.js'}
     
     def __init__(self):
         self.platform_detector = platform_detector
         self.logger = unified_logger
     
     def _debug_log(self, message: str) -> None:
-        """Debug logging wrapper"""
+        """Debug logging wrapper - only logs if DEBUG_MODE is enabled"""
         if DEBUG_MODE:
             unified_logger.log_debug(message)
     
     def _is_success_status(self, status_code: int) -> bool:
         """Check if status code indicates success"""
-        return status_code in [200, 204, 302]
+        return status_code in self.SUCCESS_STATUS_CODES
     
     def _is_error_status(self, status_code: int) -> bool:
         """Check if status code indicates error"""
@@ -1749,8 +1637,8 @@ class UnifiedResponseProcessor:
     def _calculate_response_time(self, flow: http.HTTPFlow) -> str:
         """Calculate response time with error handling"""
         try:
-            if (hasattr(flow, 'response') and hasattr(flow.response, 'timestamp_end') and 
-                hasattr(flow.request, 'timestamp_start') and 
+            if (hasattr(flow, 'response') and hasattr(flow.response, 'timestamp_end') and
+                hasattr(flow.request, 'timestamp_start') and
                 flow.response.timestamp_end and flow.request.timestamp_start):
                 response_time = (flow.response.timestamp_end - flow.request.timestamp_start) * 1000
                 return f"{response_time:.0f}ms"
@@ -1758,40 +1646,65 @@ class UnifiedResponseProcessor:
             pass
         return ""
     
-    def _detect_content_type(self, flow: http.HTTPFlow) -> tuple[str, bool]:
-        """Detect content type and if it's JavaScript"""
+    def _is_javascript_content(self, flow: http.HTTPFlow) -> bool:
+        """Check if response content is JavaScript - optimized version"""
         content_type = flow.response.headers.get("content-type", "").lower()
-        is_javascript = any(js_type in content_type for js_type in ["javascript", "application/js", "text/js"])
-        return content_type, is_javascript
-    
-    def _build_response_info(self, flow: http.HTTPFlow) -> dict:
-        """Build comprehensive response information"""
-        content_type, is_javascript = self._detect_content_type(flow)
-        status_code = flow.response.status_code
+        path = flow.request.path
         
-        response_info = {
-            "response_type": "JavaScript" if is_javascript else "Data",
-            "content_type": content_type,
-            "status_code": status_code
-        }
-        
-        # Add response size
-        if flow.response.content:
-            response_info["response_size"] = f"{len(flow.response.content)} bytes"
+        # Parse content-type to get the main type and subtype
+        if ";" in content_type:
+            main_type = content_type.split(";")[0].strip()
         else:
-            response_info["response_size"] = "0 bytes"
+            main_type = content_type.strip()
+        
+        # Check for exact JavaScript content types
+        if main_type in self.JS_CONTENT_TYPES:
+            return True
+        
+        # Check if the request path ends with .js
+        if path.endswith('.js'):
+            return True
+        
+        # Check if the path contains common JavaScript patterns
+        return any(pattern in path for pattern in self.JS_PATH_PATTERNS)
+    
+    def _get_response_size(self, flow: http.HTTPFlow) -> str:
+        """Get formatted response size"""
+        if flow.response.content:
+            return f"{len(flow.response.content)} bytes"
+        return "0 bytes"
+    
+    def _get_response_headers_info(self, flow: http.HTTPFlow) -> dict:
+        """Extract relevant response headers"""
+        headers_info = {}
+        
+        if cache_control := flow.response.headers.get("cache-control"):
+            headers_info["cache_control"] = cache_control
+        
+        if etag := flow.response.headers.get("etag"):
+            headers_info["etag"] = etag[:20] + "..." if len(etag) > 20 else etag
+        
+        return headers_info
+    
+    def _build_response_info(self, flow: http.HTTPFlow, is_js_content: bool = None) -> dict:
+        """Build comprehensive response information - optimized to avoid repeated JS detection"""
+        if is_js_content is None:
+            is_js_content = self._is_javascript_content(flow)
+            
+        response_info = {
+            "response_type": "JavaScript" if is_js_content else "Data",
+            "content_type": flow.response.headers.get("content-type", ""),
+            "status_code": flow.response.status_code,
+            "response_size": self._get_response_size(flow),
+            "request_method": self._extract_request_type(flow)
+        }
         
         # Add response timing
         if response_time := self._calculate_response_time(flow):
             response_info["response_time"] = response_time
         
-        # Add cache headers
-        if cache_control := flow.response.headers.get("cache-control"):
-            response_info["cache_control"] = cache_control
-        
-        # Add etag (truncated if too long)
-        if etag := flow.response.headers.get("etag"):
-            response_info["etag"] = etag[:20] + "..." if len(etag) > 20 else etag
+        # Add header information
+        response_info.update(self._get_response_headers_info(flow))
         
         return response_info
     
@@ -1806,151 +1719,104 @@ class UnifiedResponseProcessor:
         }
     
     def process_response(self, flow: http.HTTPFlow) -> None:
-        """Process response for tracking status and cookie monitoring"""
+        """Process response for tracking status and cookie monitoring - optimized version"""
         host = flow.request.pretty_host
         path = flow.request.path
         
-        # Fast path exclusion for static assets - same as request processing
-        if (path.lower().endswith(('.js', '.html', '.css', '.js.map', '.css.map', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot')) or 
-            '/js' in path or 
-            '/css' in path or
-            '/assets' in path or
-            '/static' in path or
-            '/wp-content' in path or
-            '/c/j' in path or 
-            '/s/' in path):
-            # Still process cookies for static assets from target domain
+        # Fast path exclusion for static assets
+        if _is_static_asset(path):
             self._handle_cookie_setting(flow)
             return
         
+        # Detect platform and JavaScript content once
         platform = self.platform_detector.detect_platform(host, path, flow)
-        
-        # Debug logging
-        self._debug_log(f"Processing response for {platform} (host: {host}, path: {path})")
+        is_js_content = self._is_javascript_content(flow)
+        js_info = "Javascript" if is_js_content else None
         
         # Process tracking response and cookies
-        self._handle_tracking_response(flow, platform)
+        self._handle_tracking_response(flow, platform, is_js_content, js_info)
         self._handle_cookie_setting(flow)
     
-    def _handle_tracking_response(self, flow: http.HTTPFlow, platform: str) -> None:
-        """Handle response status for tracking requests"""
-        request_key = f"{flow.request.method}:{flow.request.url}"
+    
+    def _handle_tracking_response(self, flow: http.HTTPFlow, platform: str, is_js_content: bool = None, js_info: Union[dict, str] = None) -> None:
+        """Handle tracking response - optimized to avoid redundant JavaScript detection"""
         status_code = flow.response.status_code
         
         # Generate request hash for matching
         post_data = flow.request.get_text() if flow.request.content else ""
-        request_hash = _generate_request_hash(flow.request.url, post_data)
+        request_hash = _generate_request_hash(flow.request.url, post_data, flow.request.method)
         
-        # Build response information
-        response_info = self._build_response_info(flow)
-        content_type, is_javascript = self._detect_content_type(flow)
+        # Build response information (pass is_js_content to avoid recalculation)
+        response_info = self._build_response_info(flow, is_js_content)
         
-        # Handle JavaScript endpoints separately
-        if is_javascript:
-            self._handle_javascript_response(flow, platform, response_info)
-            if self._is_success_status(status_code):
-                self._log_successful_request(flow, platform, status_code, request_key)
-            return
-        
-        # Handle different status codes for non-JavaScript responses
+        # Handle all responses (including JavaScript endpoints) through unified logging
         if self._is_error_status(status_code):
             self._log_failed_request(flow, platform, status_code, request_hash)
         elif self._is_success_status(status_code):
-            self._log_successful_response(flow, platform, status_code, request_hash, response_info)
+            self._log_successful_response(flow, platform, status_code, request_hash, response_info, js_info)
     
-    def _log_successful_response(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str, response_info: dict) -> None:
-        """Log successful non-JavaScript response"""
-        request_key = f"{flow.request.method}:{flow.request.url}"
-        
-        # Create status data for overlay
-        status_data = {
-            "request_url": flow.request.url,
-            "platform": platform,
-            "status_code": status_code,
-            "method": flow.request.method,
-            "success": True,
-            "request_hash": request_hash,
-            **response_info
-        }
-        
-        # Send status update to overlay
-        metadata = self._create_response_metadata(flow, response_info)
-        self.logger.log_structured("request_status_update", "status_received", status_data, metadata)
-        self._log_successful_request(flow, platform, status_code, request_key)
-        
-        # Debug logging
-        self._debug_log(f"Response info sent: {response_info} for {flow.request.url}")
+    
+    def _log_response_status(self, flow: http.HTTPFlow, platform: str, status_code: int, 
+                           request_hash: str, response_info: dict = None, is_success: bool = True, 
+                           js_info: Union[dict, str] = None) -> None:
+        """Log response status for both regular and JavaScript endpoint responses"""
+        if is_success:
+            # Create status data for overlay
+            status_data = {
+                "request_url": flow.request.url,
+                "platform": platform,
+                "status_code": status_code,
+                "method": flow.request.method,
+                "success": True,
+                "request_hash": request_hash,
+                **(response_info or {})
+            }
+            
+            # Add JavaScript-specific data if this is a JS endpoint
+            if js_info:
+                # Handle both string and dictionary js_info
+                if isinstance(js_info, dict):
+                    description = js_info.get("description", f"{platform} JavaScript Library")
+                else:
+                    description = f"{platform} JavaScript Library"
+                
+                status_data.update({
+                    "javascript_endpoint": True,
+                    "js_description": description,
+                    "response_content": ""  # Could be extracted from flow.response.content if needed
+                })
+                
+                # Log to terminal for JS endpoints
+                self.logger.log_info(f"{platform} JavaScript Library ({description})")
+            
+            # Send status update to overlay
+            metadata = self._create_response_metadata(flow, response_info)
+            event_name = "javascript_endpoint_detected" if js_info else "status_received"
+            self.logger.log_structured("request_status_update", event_name, status_data, metadata)
+            
+            # Debug logging
+            if response_info:
+                self._debug_log(f"Response info sent: {response_info} for {flow.request.url}")
+        else:
+            # Log failed request
+            error_data = {
+                "platform": platform,
+                "status_code": status_code,
+                "url": flow.request.url,
+                "method": flow.request.method,
+                "message": f"Tracking request failed with HTTP {status_code}",
+                "request_hash": request_hash
+            }
+            metadata = self._create_response_metadata(flow)
+            self.logger.log_structured("warning", "tracking_request_failed", error_data, metadata)
+    
+    def _log_successful_response(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str, response_info: dict, js_info: Union[dict, str] = None) -> None:
+        """Log successful response (regular or JavaScript)"""
+        self._log_response_status(flow, platform, status_code, request_hash, response_info, is_success=True, js_info=js_info)
     
     def _log_failed_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_hash: str = "") -> None:
         """Log failed tracking request"""
-        error_data = {
-            "platform": platform,
-            "status_code": status_code,
-            "url": flow.request.url,
-            "method": flow.request.method,
-            "message": f"Tracking request failed with HTTP {status_code}",
-            "request_hash": request_hash
-        }
-        metadata = self._create_response_metadata(flow)
-        self.logger.log_structured("warning", "tracking_request_failed", error_data, metadata)
-    
-    def _log_successful_request(self, flow: http.HTTPFlow, platform: str, status_code: int, request_key: str) -> None:
-        """Log and track successful request"""
-        self._debug_log(f"✓ {platform} tracking success: HTTP {status_code}")
-        
-        # Store success status
-        pending_requests[request_key] = {
-            "status": "success",
-            "status_code": status_code,
-            "timestamp": time.time()
-        }
-        
-        # Cleanup old entries
-        self._cleanup_old_requests()
-    
-    def _handle_javascript_response(self, flow: http.HTTPFlow, platform: str, response_info: Dict[str, str]) -> None:
-        """Handle JavaScript endpoint response with proper classification"""
-        path = flow.request.path
-        
-        # Try to get a more specific description based on the path
-        js_info = detect_javascript_endpoint(platform, path, flow.request.url)
-        description = js_info["description"] if js_info else f"{platform} JavaScript Library"
-        
-        # Log to terminal
-        self.logger.log_info(f"{platform} JavaScript Library ({description})")
-        
-        # Create structured log for overlay
-        event_data = {
-            "platform": platform,
-            "endpoint_type": "javascript_library",
-            "description": description,
-            "content_type": flow.response.headers.get("content-type", ""),
-            "status_code": flow.response.status_code,
-            **response_info
-        }
-        
-        self.logger.log_structured(
-            "javascript_endpoint", 
-            description, 
-            event_data,
-            {
-                "request_path": path, 
-                "raw_data": {}, 
-                "request_url": flow.request.url,
-                "response_headers": dict(flow.response.headers)
-            }
-        )
-    
-    def _cleanup_old_requests(self) -> None:
-        """Clean up old request tracking data"""
-        if len(pending_requests) > 500:
-            oldest_keys = sorted(pending_requests.keys(), 
-                               key=lambda k: pending_requests[k]["timestamp"])[:250]
-            for old_key in oldest_keys:
-                del pending_requests[old_key]
-        
-        # Also cleanup platform cache
-        self.platform_detector.clear_cache()
+        self._log_response_status(flow, platform, status_code, request_hash, is_success=False)
     
     def _handle_cookie_setting(self, flow: http.HTTPFlow) -> None:
         """Handle cookie setting monitoring"""
@@ -1964,21 +1830,23 @@ class UnifiedResponseProcessor:
         # Debug: Log all cookie setting attempts
         self._debug_log(f"Cookies detected on {host}: {len(set_cookie_headers)} cookies")
         
-        # Determine if this is a relevant domain
-        is_tracking_domain = self._is_tracking_domain(host)
-        is_target_domain = self._is_target_domain(host)
-        
-        self._debug_log(f"Cookie domain check - {host}: tracking={is_tracking_domain}, target={is_target_domain}")
-        
-        if is_tracking_domain or is_target_domain:
-            cookies_info = self._extract_cookie_names(set_cookie_headers)
-            if cookies_info:
-                self._debug_log(f"Logging cookies for {host}: {cookies_info}")
-                self._log_cookie_setting(host, path, cookies_info, is_tracking_domain, set_cookie_headers, flow.request.url)
-            else:
-                self._debug_log(f"No cookie names extracted from {len(set_cookie_headers)} headers")
-        else:
+        # Check if this is a relevant domain
+        if not self._is_relevant_domain(host):
             self._debug_log(f"Ignoring cookies from non-relevant domain: {host}")
+            return
+        
+        # Extract and log cookies
+        cookies_info = self._extract_cookie_names(set_cookie_headers)
+        if cookies_info:
+            is_tracking_domain = self._is_tracking_domain(host)
+            self._debug_log(f"Logging cookies for {host}: {cookies_info}")
+            self._log_cookie_setting(host, path, cookies_info, is_tracking_domain, set_cookie_headers, flow.request.url)
+        else:
+            self._debug_log(f"No cookie names extracted from {len(set_cookie_headers)} headers")
+    
+    def _is_relevant_domain(self, host: str) -> bool:
+        """Check if domain is relevant for cookie monitoring"""
+        return self._is_tracking_domain(host) or self._is_target_domain(host)
     
     def _is_tracking_domain(self, host: str) -> bool:
         """Check if host is a tracking domain"""
@@ -2008,8 +1876,36 @@ class UnifiedResponseProcessor:
     
     def _log_cookie_setting(self, host: str, path: str, cookies_info: List[str], 
                            is_tracking_domain: bool, set_cookie_headers, request_url: str) -> None:
-        """Log cookie setting event"""
+        """Log cookie setting event with enhanced metadata"""
         cookie_type = "tracking" if is_tracking_domain else "target_domain"
+        
+        # Extract detailed cookie information
+        detailed_cookies = []
+        for i, cookie_name in enumerate(cookies_info):
+            cookie_header = set_cookie_headers[i] if i < len(set_cookie_headers) else ""
+            cookie_value = ""
+            
+            # Try to extract value from Set-Cookie header
+            if cookie_header and '=' in cookie_header:
+                cookie_parts = cookie_header.split(';')[0]  # Get name=value part
+                if '=' in cookie_parts:
+                    cookie_value = cookie_parts.split('=', 1)[1]
+            
+            detailed_cookies.append({
+                "name": cookie_name,
+                "value": cookie_value,
+                "domain": host,
+                "path": path,
+                "host": host,
+                "accessible": "HttpOnly" not in cookie_header,
+                "source": "server_side",
+                "type": "server_side",
+                "http_only": "HttpOnly" in cookie_header,
+                "secure": "Secure" in cookie_header,
+                "same_site": self._extract_same_site(cookie_header),
+                "expires": self._extract_expires(cookie_header),
+                "max_age": self._extract_max_age(cookie_header)
+            })
         
         cookie_data = {
             "host": host,
@@ -2021,7 +1917,12 @@ class UnifiedResponseProcessor:
             "cookie_type": cookie_type,
             "full_cookies": set_cookie_headers,
             # For compatibility with display logic, if single cookie provide as cookie_name
-            "cookie_name": cookies_info[0] if len(cookies_info) == 1 else None
+            "cookie_name": cookies_info[0] if len(cookies_info) == 1 else None,
+            # Enhanced metadata
+            "detailed_cookies": detailed_cookies,
+            "http_only_cookies_count": len([c for c in detailed_cookies if c["http_only"]]),
+            "secure_cookies_count": len([c for c in detailed_cookies if c["secure"]]),
+            "tracking_domain": is_tracking_domain
         }
         
         # Create a minimal flow-like object for metadata creation
@@ -2033,15 +1934,66 @@ class UnifiedResponseProcessor:
         
         self.logger.log_structured("cookie", "cookie_set", cookie_data, metadata)
         self._debug_log(f"✓ Logged {len(cookies_info)} cookies for {host} ({cookie_type})")
+    
+    
+    def _extract_same_site(self, cookie_header: str) -> str:
+        """Extract SameSite attribute from cookie header"""
+        if not cookie_header:
+            return "None"
+        
+        cookie_parts = cookie_header.split(';')
+        for part in cookie_parts:
+            part = part.strip().lower()
+            if part.startswith('samesite='):
+                return part.split('=', 1)[1].title()
+        
+        return "None"
+    
+    def _extract_expires(self, cookie_header: str) -> str:
+        """Extract Expires attribute from cookie header"""
+        if not cookie_header:
+            return ""
+        
+        cookie_parts = cookie_header.split(';')
+        for part in cookie_parts:
+            part = part.strip()
+            if part.lower().startswith('expires='):
+                return part.split('=', 1)[1]
+        
+        return ""
+    
+    def _extract_max_age(self, cookie_header: str) -> str:
+        """Extract Max-Age attribute from cookie header"""
+        if not cookie_header:
+            return ""
+        
+        cookie_parts = cookie_header.split(';')
+        for part in cookie_parts:
+            part = part.strip()
+            if part.lower().startswith('max-age='):
+                return part.split('=', 1)[1]
+        
+        return ""
+    
+    def _extract_request_type(self, flow: http.HTTPFlow) -> str:
+        """Extract request type from request"""
+        if flow.request.method == "GET":
+            return "GET"
+        elif flow.request.method == "POST":
+            return "POST"
+        elif flow.request.method == "HEAD":
+            return "HEAD"
+        return "UNKNOWN"
 
 
 # Global response processor instance
 response_processor = UnifiedResponseProcessor()
 
-
 def response(flow: http.HTTPFlow) -> None:
     """Main response handler using unified processor"""
     response_processor.process_response(flow)
+
+
 
 class UnifiedRequestProcessor:
     """Unified request processing pipeline"""
@@ -2053,21 +2005,16 @@ class UnifiedRequestProcessor:
         """Unified request processing for all HTTP methods"""
         # Fast path exclusion for non-relevant files and static assets
         path = flow.request.path
-        if (path.lower().endswith(('.js', '.html', '.css', '.js.map', '.css.map', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot')) or 
-            '/js' in path or 
-            '/css' in path or
-            '/assets' in path or
-            '/static' in path or
-            '/wp-content' in path or
-            '/c/j' in path or 
-            '/s/' in path):
+        if _is_static_asset(path):
             return
         
-        # Use optimized tracking check
-        if not is_tracking_request(flow):
-            return
-        
+        # Exclude Google APIs that are not tracking related
         host = flow.request.pretty_host
+        
+        # Use optimized tracking check from platform detector
+        if not self.platform_detector.is_tracking_request(flow):
+            return
+        
         platform = self.platform_detector.detect_platform(host, path, flow)
         
         # Extract request data based on method
@@ -2081,10 +2028,10 @@ class UnifiedRequestProcessor:
             if isinstance(request_data, list):
                 # Handle batch requests (like GA4 JSON batches)
                 for data in request_data:
-                    process_marketing_pixel_event(data, platform, flow.request.path, flow.request.url, post_data)
+                    process_marketing_pixel_event(data, platform, flow.request.path, flow.request.url, post_data, flow.request.method)
             else:
                 # Handle single request
-                process_marketing_pixel_event(request_data, platform, flow.request.path, flow.request.url, post_data)
+                process_marketing_pixel_event(request_data, platform, flow.request.path, flow.request.url, post_data, flow.request.method)
         
         except Exception as e:
             unified_logger.log_error(f"PARSE_ERROR: {str(e)[:100]}")
@@ -2168,7 +2115,6 @@ class UnifiedRequestProcessor:
 
 # Global request processor instance
 request_processor = UnifiedRequestProcessor()
-
 
 def request(flow: http.HTTPFlow) -> None:
     """Main request handler with unified processing"""

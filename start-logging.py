@@ -29,9 +29,8 @@ sys.stderr.reconfigure(line_buffering=True)
 WEBSOCKET_PORT = get_websocket_port()
 WEBSOCKET_HOST = get_websocket_host()
 DEBUG_MODE = is_debug_mode()
-ENABLE_WEBSOCKET_OUTPUT = True  # Always enabled for this application
-IGNORE_CERT_ERRORS = ignore_certificate_errors()
 BROWSER_HEADLESS = get_browser_headless()
+IGNORE_CERT_ERRORS = ignore_certificate_errors()
 
 # Configuration
 MITMPROXY_SCRIPT = "./ga4-logger.py"
@@ -44,10 +43,11 @@ connected_clients = set()
 websocket_server = None
 last_logged_url = None
 TARGET_DOMAIN = None
+PROXY_SERVER = None  # Will be set when mitmproxy starts
 
 # Message buffer for late-connecting clients
 message_buffer = []
-MAX_BUFFER_SIZE = 50  # Keep last 50 messages
+# Keep messages until URL change instead of fixed size limit
 
 async def handle_websocket_client(websocket):
     """Handle new websocket client connections"""
@@ -147,6 +147,181 @@ def start_websocket_services():
     server_thread.start()
     return server_thread
 
+def clear_message_buffer():
+    """Clear the message buffer - called on URL changes"""
+    global message_buffer
+    buffer_size = len(message_buffer)
+    message_buffer.clear()
+    if buffer_size > 0:
+        print(f"🧹 Cleared message buffer ({buffer_size} messages) due to URL change", flush=True)
+
+def extract_cookies_from_buffer():
+    """Extract all cookies found in the message buffer"""
+    global message_buffer
+    
+    cookies_found = []
+    seen_cookies = set()  # Track unique cookies by name+domain combination
+    
+    for message in message_buffer:
+        try:
+            # Check if this is a structured log message
+            if message.startswith('[STRUCTURED] '):
+                log_data = json.loads(message[13:])  # Remove '[STRUCTURED] ' prefix
+                log_type = log_data.get('type', '')
+                event = log_data.get('event', '')
+                data = log_data.get('data', {})
+                
+                # Extract cookies from cookie events
+                if log_type == 'cookie':
+                    # Handle both single cookie (cookie_name) and multiple cookies (cookies list)
+                    cookie_names = []
+                    if data.get('cookie_name'):
+                        cookie_names.append(data.get('cookie_name'))
+                    if data.get('cookies') and isinstance(data.get('cookies'), list):
+                        cookie_names.extend(data.get('cookies'))
+                    
+                    # Remove duplicates while preserving order
+                    seen_in_this_event = set()
+                    unique_cookie_names = []
+                    for cookie_name in cookie_names:
+                        if cookie_name and cookie_name not in seen_in_this_event:
+                            seen_in_this_event.add(cookie_name)
+                            unique_cookie_names.append(cookie_name)
+                    
+                    cookie_domain = data.get('domain', '')
+                    
+                    # Process each cookie
+                    for cookie_name in unique_cookie_names:
+                        if not cookie_name:  # Skip empty names
+                            continue
+                            
+                        # Create unique identifier for this cookie
+                        cookie_key = f"{cookie_name}:{cookie_domain}"
+                        
+                        # Skip if we've already seen this cookie
+                        if cookie_key in seen_cookies:
+                            continue
+                        
+                        seen_cookies.add(cookie_key)
+                        
+                        cookie_info = {
+                            'name': cookie_name,
+                            'action': data.get('action', event),
+                            'type': data.get('cookie_type', 'unknown'),
+                            'domain': cookie_domain,
+                            'path': data.get('path', ''),
+                            'is_marketing': data.get('is_marketing_cookie', False),
+                            'banner_visible': data.get('banner_visible', False),
+                            'timestamp': log_data.get('timestamp', ''),
+                            'source': 'structured_log'
+                        }
+                        
+                        # Add detailed cookie information if available
+                        if data.get('detailed_cookies'):
+                            # Find the specific detailed cookie info for this cookie
+                            for detailed_cookie in data.get('detailed_cookies', []):
+                                if isinstance(detailed_cookie, dict) and detailed_cookie.get('name') == cookie_name:
+                                    cookie_info['detailed_cookies'] = [detailed_cookie]
+                                    break
+                        
+                        # Add cookie metadata if available
+                        if data.get('cookie_metadata'):
+                            cookie_info['metadata'] = data.get('cookie_metadata')
+                        
+                        cookies_found.append(cookie_info)
+                
+                # Extract cookies from violation events
+                elif log_type == 'violation' and event == 'marketing_cookie_while_banner_visible':
+                    violating_cookie_name = data.get('violating_cookie_name', data.get('cookie_name', ''))
+                    violating_cookie_domain = data.get('domain', '')
+                    
+                    # Create unique identifier for this cookie
+                    cookie_key = f"{violating_cookie_name}:{violating_cookie_domain}"
+                    
+                    # Skip if we've already seen this cookie
+                    if cookie_key in seen_cookies:
+                        continue
+                    
+                    seen_cookies.add(cookie_key)
+                    
+                    violating_cookie = {
+                        'name': violating_cookie_name,
+                        'action': data.get('action', 'set'),
+                        'type': 'marketing_violation',
+                        'domain': violating_cookie_domain,
+                        'is_marketing': True,
+                        'banner_visible': True,
+                        'severity': data.get('severity', 'HIGH'),
+                        'timestamp': log_data.get('timestamp', ''),
+                        'source': 'violation_log'
+                    }
+                    cookies_found.append(violating_cookie)
+                
+                # Extract cookies from GDPR audit events
+                elif log_type == 'gdpr_audit' and event == 'complete_cookie_audit':
+                    if data.get('all_cookies'):
+                        for cookie in data.get('all_cookies', []):
+                            audit_cookie_name = cookie.get('name', '')
+                            audit_cookie_domain = data.get('domain', '')
+                            
+                            # Create unique identifier for this cookie
+                            cookie_key = f"{audit_cookie_name}:{audit_cookie_domain}"
+                            
+                            # Skip if we've already seen this cookie
+                            if cookie_key in seen_cookies:
+                                continue
+                            
+                            seen_cookies.add(cookie_key)
+                            
+                            audit_cookie = {
+                                'name': audit_cookie_name,
+                                'action': 'audit',
+                                'type': 'audit',
+                                'domain': audit_cookie_domain,
+                                'is_marketing': cookie.get('is_marketing', False),
+                                'value': cookie.get('value', ''),
+                                'http_only': cookie.get('http_only', False),
+                                'secure': cookie.get('secure', False),
+                                'same_site': cookie.get('same_site', ''),
+                                'timestamp': log_data.get('timestamp', ''),
+                                'source': 'gdpr_audit'
+                            }
+                            cookies_found.append(audit_cookie)
+            
+            # Check for legacy cookie messages (non-structured)
+            elif 'cookie' in message.lower() and any(keyword in message.lower() for keyword in ['set', 'get', 'delete', 'update']):
+                # Try to extract basic cookie info from legacy messages
+                legacy_cookie_name = 'unknown'
+                legacy_cookie_domain = ''
+                
+                # Create unique identifier for this cookie
+                cookie_key = f"{legacy_cookie_name}:{legacy_cookie_domain}"
+                
+                # Skip if we've already seen this cookie
+                if cookie_key in seen_cookies:
+                    continue
+                
+                seen_cookies.add(cookie_key)
+                
+                legacy_cookie = {
+                    'name': legacy_cookie_name,
+                    'action': 'legacy',
+                    'type': 'legacy',
+                    'domain': legacy_cookie_domain,
+                    'is_marketing': False,
+                    'banner_visible': False,
+                    'timestamp': time.time(),
+                    'source': 'legacy_message',
+                    'raw_message': message
+                }
+                cookies_found.append(legacy_cookie)
+                
+        except (json.JSONDecodeError, KeyError, Exception) as e:
+            # Skip malformed messages
+            continue
+    
+    return cookies_found
+
 def send_to_websocket(message):
     """Send message to websocket clients via queue and buffer for late connections"""
     global message_buffer
@@ -155,9 +330,8 @@ def send_to_websocket(message):
         # Add to buffer for late-connecting clients
         message_buffer.append(message)
         
-        # Keep buffer size manageable
-        if len(message_buffer) > MAX_BUFFER_SIZE:
-            message_buffer = message_buffer[-MAX_BUFFER_SIZE:]
+        # Keep buffer size manageable - only clear on URL changes
+        # (URL changes will be handled separately to clear the buffer)
         
         # Send to currently connected clients
         websocket_message_queue.put(message)
@@ -177,8 +351,7 @@ def unified_output_handler():
             # Only send structured logs to websocket
             if message.startswith('[STRUCTURED]'):
                 # Send to websocket
-                if ENABLE_WEBSOCKET_OUTPUT:
-                    send_to_websocket(message)
+                send_to_websocket(message)
                 # Also generate console output for certain structured events
                 try:
                     log_data = json.loads(message[13:])  # Remove '[STRUCTURED] ' prefix
@@ -192,20 +365,7 @@ def unified_output_handler():
                         print(f"*** URL CHANGE ***", flush=True)
                         print(f"URL: {data.get('url', '')}", flush=True)
                     elif log_type == 'consent':
-                        if event == 'user_consent_declined':
-                            print(f"🚫 CONSENT DECLINED - User rejected all tracking", flush=True)
-                            declined_cats = data.get('declined_categories', [])
-                            if declined_cats:
-                                print(f"   Denied: {', '.join(declined_cats)}", flush=True)
-                        elif event == 'user_consent_given':
-                            print(f"✅ CONSENT ACCEPTED - User granted tracking permissions", flush=True)
-                            granted_cats = data.get('granted_categories', [])
-                            denied_cats = data.get('denied_categories', [])
-                            if granted_cats:
-                                print(f"   Granted: {', '.join(granted_cats)}", flush=True)
-                            if denied_cats:
-                                print(f"   Denied: {', '.join(denied_cats)}", flush=True)
-                        elif event.startswith('consent_'):
+                        if event.startswith('consent_'):
                             consent_action = event.replace('consent_', '').replace('_', ' ').title()
                             print(f"✅ CONSENT: {consent_action}", flush=True)
                         else:
@@ -343,7 +503,7 @@ def start_mitmproxy():
         def read_output(stream, prefix):
             for line in iter(stream.readline, ''):
                 if line.strip():
-                    if line.strip().startswith('[STRUCTURED]') and ENABLE_WEBSOCKET_OUTPUT:
+                    if line.strip().startswith('[STRUCTURED]'):
                         send_to_websocket(line.rstrip())
                     else:
                         output_queue.put(f"[{prefix}] {line.rstrip()}")
@@ -370,19 +530,7 @@ def stop_mitmproxy(proc):
         except subprocess.TimeoutExpired:
             proc.kill()
 
-def create_ga4_logger_window(context):
-    """Create a separate GA4 Logger window"""
-    overlay_path = os.path.join(os.path.dirname(__file__), "ga4-logger-overlay.html")
-    try:
-        # Use goto() with file:// URL so relative paths work for CSS/JS
-        logger_page = context.new_page()
-        file_url = f"file://{os.path.abspath(overlay_path)}"
-        logger_page.goto(file_url)
-        logger_page.set_viewport_size({"width": 900, "height": 700})
-        return logger_page
-    except Exception as e:
-        print(f"❌ Could not load overlay HTML: {e}", flush=True)
-        return None
+
 
 def create_structured_log(log_type, event, data, metadata=None):
     """Create a structured log entry"""
@@ -454,7 +602,7 @@ def run_browser_with_proxy():
             print("✅ Browser configured with mitmproxy certificate", flush=True)
         
         browser = p.chromium.launch(
-            headless=False,
+            headless=BROWSER_HEADLESS,
             proxy={"server": PROXY_SERVER},
             args=launch_args
         )
@@ -554,663 +702,54 @@ def run_browser_with_proxy():
         site_context.on("page", lambda page: page.on("download", handle_download))
 
 
-        # DataLayer, Cookie and Cookie Banner monitoring script (inject into site window)
-        site_page.add_init_script("""
-                // Basic test to ensure script injection is working
-                console.log('[SCRIPT_INJECTION]', 'JavaScript injection successful!', new Date().toISOString());
-                
-                // Check frame context
-                console.log('[FRAME_CHECK]', 'Is main frame:', window.self === window.top);
-                console.log('[FRAME_CHECK]', 'Already injected:', !!window.dataLayerMonitoringInjected);
-                
-                if (window.self !== window.top || window.dataLayerMonitoringInjected) {
-                    console.log('[FRAME_CHECK]', 'Skipping injection - iframe or already injected');
-                    return;
-                }
-                window.dataLayerMonitoringInjected = true;
-
-                // Unified DataLayer monitoring with consent tracking
-                console.log('[DATALAYER_MONITOR]', 'DataLayer monitoring script loaded');
-                
-                window.dataLayer = window.dataLayer || [];
-                let consentGranted = {marketing: false, analytics: false, storage: false};
-                
-                // Debug: Log initial dataLayer state
-                console.log('[DATALAYER_MONITOR]', 'Initial dataLayer length:', window.dataLayer.length);
-                
-                const originalPush = window.dataLayer.push;
-                window.dataLayer.push = function(...args) {
-                    console.log('[DATALAYER_MONITOR]', 'DataLayer push called with', args.length, 'arguments');
-                    
-                    args.forEach((data, index) => {
-                        console.log('[DATALAYER_MONITOR]', 'Processing argument', index, ':', typeof data);
-                        
-                        if (typeof data === 'object' && data !== null) {
-                            // Log DataLayer events
-                            console.log('[DATALAYER_EVENT]', JSON.stringify({
-                                timestamp: new Date().toLocaleTimeString(),
-                                event: data.event || 'unknown',
-                                data: data
-                            }));
-                            
-                            // Track consent changes
-                            if (data.ad_storage === 'granted') {
-                                consentGranted.storage = true;
-                                console.log('[DATALAYER_MONITOR]', 'Consent granted: ad_storage');
-                            }
-                            if (data.analytics_storage === 'granted') {
-                                consentGranted.analytics = true;
-                                console.log('[DATALAYER_MONITOR]', 'Consent granted: analytics_storage');
-                            }
-                            if (data.marketing === 'granted' || data.advertising === 'granted') {
-                                consentGranted.marketing = true;
-                                console.log('[DATALAYER_MONITOR]', 'Consent granted: marketing/advertising');
-                            }
-                        }
-                    });
-                    
-                    const result = originalPush.apply(window.dataLayer, args);
-                    console.log('[DATALAYER_MONITOR]', 'DataLayer push completed, new length:', window.dataLayer.length);
-                    return result;
-                };
-
-                // Test DataLayer monitoring with a sample event
-                setTimeout(() => {
-                    console.log('[DATALAYER_MONITOR]', 'Testing DataLayer push...');
-                    window.dataLayer.push({
-                        event: 'monitoring_test',
-                        test: true,
-                        timestamp: Date.now()
-                    });
-                }, 1000);
-
-                // Client-side Cookie Observer
-                console.log('[COOKIE_MONITOR]', 'Cookie monitoring script loaded');
-                let lastCookieSnapshot = {};
-                let cookieObserverActive = true;
-
-                function parseCookieString(cookieStr) {
-                    const cookies = {};
-                    if (!cookieStr) return cookies;
-                    
-                    cookieStr.split(';').forEach(cookie => {
-                        const [name, ...rest] = cookie.trim().split('=');
-                        if (name) {
-                            cookies[name] = rest.join('=') || '';
-                        }
-                    });
-                    return cookies;
-                }
-
-                function getCookieSnapshot() {
-                    return parseCookieString(document.cookie);
-                }
-
-                function detectCookieChanges() {
-                    if (!cookieObserverActive) return;
-                    
-                    try {
-                        const currentCookies = getCookieSnapshot();
-                        const previousCookies = lastCookieSnapshot;
-                        
-                        // Detect new or modified cookies
-                        for (const [name, value] of Object.entries(currentCookies)) {
-                            if (!(name in previousCookies)) {
-                                // New cookie
-                                addCookieEvent('created', name, value, null);
-                            } else if (previousCookies[name] !== value) {
-                                // Modified cookie
-                                addCookieEvent('modified', name, value, previousCookies[name]);
-                            }
-                        }
-                        
-                        // Detect deleted cookies
-                        for (const [name, value] of Object.entries(previousCookies)) {
-                            if (!(name in currentCookies)) {
-                                addCookieEvent('deleted', name, null, value);
-                            }
-                        }
-                        
-                        lastCookieSnapshot = currentCookies;
-                    } catch (error) {
-                        console.error('Cookie detection error:', error);
-                    }
-                }
-
-                function isBannerStillVisible() {
-                    if (!cookieBannerElement) return false;
-                    
-                    try {
-                        // Check if element is still in DOM
-                        if (!document.contains(cookieBannerElement)) {
-                            cookieBannerCurrentlyVisible = false;
-                            return false;
-                        }
-                        
-                        // Use enhanced visibility check
-                        const isVisible = isElementTrulyVisible(cookieBannerElement);
-                        
-                        if (!isVisible && cookieBannerCurrentlyVisible) {
-                            cookieBannerCurrentlyVisible = false;
-                            console.log('[COOKIE_BANNER_HIDDEN]', JSON.stringify({
-                                timestamp: new Date().toISOString(),
-                                url: window.location.href,
-                                reason: 'element_not_truly_visible'
-                            }));
-                        }
-                        
-                        return isVisible;
-                    } catch (e) {
-                        cookieBannerCurrentlyVisible = false;
-                        return false;
-                    }
-                }
-
-                function isMarketingCookie(name, value) {
-                    name = name.toLowerCase();
-                    value = (value || '').toLowerCase();
-                    
-                    // Consolidated regex for marketing cookies
-                    return /^(_ga|_gid|_gat|_gcl|_gac|__utm|_fb|fbp|fbc|_tt|_pin|_li|_hj|_clc|amplitude|mp_|ajs_|_mkto|__hs|_vwo|optly|gtm|adnxs|anj|criteo|cto|obuid|t_gid|ads|doubleclick|gads|facebook|tiktok|pinterest|linkedin|twitter|personalization_id|clarity|mixpanel|segment|pardot|visitor_id|marketo|hubspot|salesforce|sfdc|uuid2|outbrain|taboola|vwo|optimizely)/.test(name) ||
-                           /(track|analytic|marketing|ads|pixel|beacon|conversion|affiliate|partner|retarget|audience|segment|cohort|campaign|advertisement)/.test(name + value);
-                }
-
-                // Consent checking function (uses global consentGranted from DataLayer monitoring)
-                
-                function checkMarketingConsent() {
-                    // Check tracked consent or scan current state
-                    if (consentGranted.marketing || consentGranted.analytics || consentGranted.storage) return true;
-                    
-                    // Quick DataLayer check for Google Consent Mode
-                    if (window.dataLayer?.length) {
-                        for (let i = window.dataLayer.length - 1; i >= 0; i--) {
-                            const item = window.dataLayer[i];
-                            if (item?.ad_storage === 'granted' || item?.ad_user_data === 'granted' || 
-                                item?.analytics_storage === 'granted') return true;
-                        }
-                    }
-                    
-                    // Quick cookie scan for common consent indicators
-                    const cookies = getCookieSnapshot();
-                    return Object.values(cookies).some(v => 
-                        v && (v.includes('granted') || v.includes('"marketing":true') || 
-                              v.includes('"advertising":true') || v.includes('ads=granted'))
-                    );
-                }
-                
-
-                function addCookieEvent(action, name, newValue, oldValue) {
-                    const timestamp = new Date().toLocaleTimeString();
-                    const domain = window.location.hostname;
-                    
-                    // Check for marketing cookie violation
-                    if (action === 'created' || action === 'modified') {
-                        const isBannerVisible = isBannerStillVisible();
-                        const isMarketing = isMarketingCookie(name, newValue);
-                        const hasMarketingConsent = checkMarketingConsent();
-                        
-                        // Only flag as violation if banner is visible AND no marketing consent has been granted
-                        if (isBannerVisible && isMarketing && !hasMarketingConsent) {
-                            // Get all existing cookies for comprehensive violation reporting
-                            const existingCookies = document.cookie.split(';');
-                            const allMarketingCookies = [];
-                            const allOtherCookies = [];
-                            
-                            existingCookies.forEach(cookie => {
-                                const [cookieName, cookieValue] = cookie.trim().split('=').map(s => s.trim());
-                                if (cookieName) {
-                                    const truncatedValue = cookieValue ? (cookieValue.length > 50 ? cookieValue.substring(0, 50) + '...' : cookieValue) : null;
-                                    if (isMarketingCookie(cookieName, cookieValue)) {
-                                        allMarketingCookies.push({
-                                            name: cookieName,
-                                            value: truncatedValue,
-                                            is_violating_cookie: cookieName === name
-                                        });
-                                    } else {
-                                        allOtherCookies.push({
-                                            name: cookieName,
-                                            value: truncatedValue
-                                        });
-                                    }
-                                }
-                            });
-                            
-                            console.log('[MARKETING_COOKIE_VIOLATION]', JSON.stringify({
-                                timestamp: new Date().toISOString(),
-                                violation_type: 'marketing_cookie_while_banner_visible',
-                                violating_cookie_name: name,
-                                violating_cookie_value: newValue ? (newValue.length > 50 ? newValue.substring(0, 50) + '...' : newValue) : null,
-                                action: action,
-                                domain: domain,
-                                url: window.location.href,
-                                banner_visible: isBannerVisible,
-                                marketing_consent: hasMarketingConsent,
-                                severity: 'HIGH',
-                                compliance_risk: 'GDPR_VIOLATION_RISK',
-                                message: `Marketing cookie '${name}' was ${action} while cookie banner is visible and no marketing consent granted - potential GDPR violation`,
-                                // Include comprehensive cookie context
-                                all_marketing_cookies: allMarketingCookies,
-                                all_other_cookies: allOtherCookies,
-                                total_marketing_cookies: allMarketingCookies.length,
-                                total_other_cookies: allOtherCookies.length
-                            }));
-                        }
-                    }
-                    
-                    console.log('[COOKIE_EVENT]', JSON.stringify({
-                        timestamp: timestamp,
-                        action: action,
-                        cookie_name: name,
-                        new_value: newValue,
-                        old_value: oldValue,
-                        domain: domain,
-                        path: window.location.pathname,
-                        host: window.location.hostname,
-                        cookie_type: 'client_side',
-                        url: window.location.href,
-                        is_marketing_cookie: isMarketingCookie(name, newValue),
-                        banner_visible: isBannerStillVisible()
-                    }));
-                }
-
-                // Setup cookie monitoring
-                function setupCookieObserver() {
-                    // Method 1: Override document.cookie setter
-                    try {
-                        let originalCookieDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') || 
-                                                      Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
-                        
-                        if (originalCookieDescriptor && originalCookieDescriptor.configurable) {
-                            Object.defineProperty(document, 'cookie', {
-                                get: originalCookieDescriptor.get,
-                                set: function(value) {
-                                    // Call the original setter first
-                                    originalCookieDescriptor.set.call(this, value);
-                                    
-                                    // Trigger change detection
-                                    setTimeout(detectCookieChanges, 5);
-                                },
-                                configurable: true
-                            });
-                            console.log('[COOKIE_MONITOR]', 'Cookie setter override successful');
-                        }
-                    } catch (error) {
-                        console.error('[COOKIE_MONITOR]', 'Cookie setter override failed:', error);
-                    }
-
-                    // Method 2: Periodic monitoring (backup)
-                    setInterval(detectCookieChanges, 2000);
-
-                    // Method 3: DOM mutation observer
-                    if (window.MutationObserver) {
-                        const observer = new MutationObserver(function(mutations) {
-                            let shouldCheck = false;
-                            mutations.forEach(function(mutation) {
-                                if (mutation.type === 'childList') {
-                                    mutation.addedNodes.forEach(function(node) {
-                                        if (node.nodeName === 'SCRIPT') {
-                                            shouldCheck = true;
-                                        }
-                                    });
-                                }
-                            });
-                            if (shouldCheck) {
-                                setTimeout(detectCookieChanges, 100);
-                            }
-                        });
-                        
-                        observer.observe(document, {
-                            childList: true,
-                            subtree: true
-                        });
-                    }
-                }
-
-                // Initialize cookie monitoring
-                lastCookieSnapshot = getCookieSnapshot();
-                setupCookieObserver();
-
-                // Note: SPA navigation detection is now handled by CDP (Chrome DevTools Protocol)
-                // which is more reliable and doesn't require JavaScript injection
-
-                // Cookie Banner Detection
-                let cookieBannerDetected = false;
-                let cookieBannerCurrentlyVisible = false;
-                let cookieBannerObserver = null;
-                let cookieBannerElement = null;
-
-                function detectCookieBanner() {
-                    if (cookieBannerDetected) return;
-
-                    // Consolidated banner detection - essential selectors only
-                    const bannerSelectors = [
-                        // Generic patterns (cover 90% of cases)
-                        '[id*="cookie" i]', '[class*="cookie" i]', '[id*="consent" i]', '[class*="consent" i]',
-                        '[id*="privacy" i]', '[class*="privacy" i]', '[id*="gdpr" i]', '[class*="gdpr" i]',
-                        
-                        // Major CMP providers (consolidated)
-                        '#onetrust-banner-sdk', '#CybotCookiebotDialog', '#usercentrics-cmp', '#BorlabsCookieBox',
-                        '#truste-consent-track', '.qc-cmp-ui', '#cmpbox', '#iubenda-cs-banner', '#cookiescript_injected', 
-                        '#didomi-notice', '.cc-window', '#cookieConsent', '[role="dialog"][aria-label*="cookie" i]'
-                    ];
-
-                    // Simplified text patterns
-                    const cookieTextPattern = /(cookies?|privacy|consent|gdpr|accept.*cookie|we use cookie|personalized ads|manage.*cookie)/i;
-
-                    let foundBanner = null;
-                    let detectionMethod = '';
-
-                    // Method 1: Check for elements with cookie-related selectors
-                    for (const selector of bannerSelectors) {
-                        try {
-                            const elements = document.querySelectorAll(selector);
-                            for (const element of elements) {
-                                if (element.offsetWidth > 0 && element.offsetHeight > 0) {
-                                    // Element is visible
-                                    const rect = element.getBoundingClientRect();
-                                    if (rect.width > 200 && rect.height > 50) { // Reasonable banner size
-                                        foundBanner = element;
-                                        detectionMethod = `selector: ${selector}`;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (foundBanner) break;
-                        } catch (e) {
-                            // Skip invalid selectors
-                        }
-                    }
-
-                    // Method 2: Text-based detection for elements with cookie-related content
-                    if (!foundBanner) {
-                        const allElements = document.querySelectorAll('div, section, aside, header, footer, nav, main');
-                        for (const element of allElements) {
-                            if (element.offsetWidth > 0 && element.offsetHeight > 0) {
-                                const text = element.textContent || '';
-                                const rect = element.getBoundingClientRect();
-                                
-                                // Check if element contains cookie-related text and has reasonable size
-                                if (text.length > 10 && rect.width > 200 && rect.height > 50) {
-                                    if (cookieTextPattern.test(text)) {
-                                        // Additional checks to avoid false positives
-                                        if (text.length < 2000 && // Not too long (likely not main content)
-                                            (rect.top < 100 || rect.bottom > window.innerHeight - 100 || // Top or bottom positioned
-                                             element.style.position === 'fixed' || 
-                                             element.style.position === 'absolute' ||
-                                             getComputedStyle(element).position === 'fixed' ||
-                                             getComputedStyle(element).position === 'absolute')) {
-                                            foundBanner = element;
-                                            detectionMethod = 'text pattern';
-                                            break;
-                                        }
-                                    }
-                                    if (foundBanner) break;
-                                }
-                            }
-                        }
-                    }
-
-                    // Enhanced visibility check - only detect banners that are actually visible
-                    function isElementTrulyVisible(element) {
-                        if (!element) return false;
-                        
-                        // Check basic dimensions
-                        if (element.offsetWidth === 0 || element.offsetHeight === 0) return false;
-                        
-                        // Check computed styles
-                        const styles = getComputedStyle(element);
-                        if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity === '0') {
-                            return false;
-                        }
-                        
-                        // Check if element is in viewport
-                        const rect = element.getBoundingClientRect();
-                        const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-                        const windowWidth = window.innerWidth || document.documentElement.clientWidth;
-                        
-                        // Element must have visible area in viewport
-                        if (rect.bottom < 0 || rect.top > windowHeight || rect.right < 0 || rect.left > windowWidth) {
-                            return false;
-                        }
-                        
-                        // Element must have actual visible dimensions in viewport
-                        if (rect.width === 0 || rect.height === 0) return false;
-                        
-                        // Check for negative z-index that might hide it
-                        if (parseInt(styles.zIndex) < 0) return false;
-                        
-                        return true;
-                    }
-
-                    if (foundBanner && !cookieBannerDetected && isElementTrulyVisible(foundBanner)) {
-                        cookieBannerDetected = true;
-                        cookieBannerElement = foundBanner;
-                        cookieBannerCurrentlyVisible = true;
-                        
-                        const bannerInfo = {
-                            tag: foundBanner.tagName.toLowerCase(),
-                            id: foundBanner.id || '',
-                            classes: Array.from(foundBanner.classList).join(' '),
-                            text_preview: (foundBanner.textContent || '').substring(0, 200),
-                            position: getComputedStyle(foundBanner).position,
-                            z_index: getComputedStyle(foundBanner).zIndex,
-                            detection_method: detectionMethod,
-                            bounding_rect: {
-                                top: foundBanner.getBoundingClientRect().top,
-                                left: foundBanner.getBoundingClientRect().left,
-                                width: foundBanner.getBoundingClientRect().width,
-                                height: foundBanner.getBoundingClientRect().height
-                            },
-                            visible: isElementTrulyVisible(foundBanner),
-                            url: window.location.href,
-                            timestamp: new Date().toISOString()
-                        };
-
-                        console.log('[COOKIE_BANNER_DETECTED]', JSON.stringify(bannerInfo));
-                        
-                        // Check for existing marketing cookies when banner is detected
-                        setTimeout(() => {
-                            const existingCookies = document.cookie.split(';');
-                            const marketingCookies = [];
-                            
-                            existingCookies.forEach(cookie => {
-                                const [name, value] = cookie.trim().split('=').map(s => s.trim());
-                                if (name && isMarketingCookie(name, value)) {
-                                    marketingCookies.push({
-                                        name: name,
-                                        value: value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : null
-                                    });
-                                }
-                            });
-                            
-                            if (marketingCookies.length > 0) {
-                                console.log('[MARKETING_COOKIES_ALREADY_SET]', JSON.stringify({
-                                    timestamp: new Date().toISOString(),
-                                    url: window.location.href,
-                                    domain: window.location.hostname,
-                                    marketing_cookies: marketingCookies,
-                                    cookie_count: marketingCookies.length,
-                                    banner_just_detected: true,
-                                    severity: 'MEDIUM',
-                                    compliance_risk: 'GDPR_PRELOAD_VIOLATION',
-                                    message: `${marketingCookies.length} marketing cookie(s) were already set before cookie banner appeared - potential GDPR violation`
-                                }));
-                            }
-                        }, 100); // Small delay to ensure banner detection is complete
-                        
-                        // Also log buttons within the banner
-                        const buttons = foundBanner.querySelectorAll('button, a, [role="button"]');
-                        if (buttons.length > 0) {
-                            const buttonInfo = Array.from(buttons).map(btn => ({
-                                tag: btn.tagName.toLowerCase(),
-                                text: (btn.textContent || '').trim(),
-                                id: btn.id || '',
-                                classes: Array.from(btn.classList).join(' '),
-                                onclick: btn.onclick ? 'has_onclick' : 'no_onclick'
-                            }));
-                            
-                            console.log('[COOKIE_BANNER_BUTTONS]', JSON.stringify({
-                                url: window.location.href,
-                                timestamp: new Date().toISOString(),
-                                buttons: buttonInfo
-                            }));
-                        }
-                    }
-                }
-
-                function setupCookieBannerObserver() {
-                    // Initial detection
-                    setTimeout(detectCookieBanner, 500);
-                    setTimeout(detectCookieBanner, 2000);
-                    setTimeout(detectCookieBanner, 5000);
-
-                    // Periodic visibility check
-                    setInterval(function() {
-                        if (cookieBannerDetected && cookieBannerCurrentlyVisible) {
-                            isBannerStillVisible(); // This will update the visibility status
-                        }
-                    }, 2000);
-
-                    // MutationObserver for dynamically added banners
-                    if (window.MutationObserver) {
-                        cookieBannerObserver = new MutationObserver(function(mutations) {
-                            let shouldCheck = false;
-                            mutations.forEach(function(mutation) {
-                                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                                    mutation.addedNodes.forEach(function(node) {
-                                        if (node.nodeType === Node.ELEMENT_NODE) {
-                                            shouldCheck = true;
-                                        }
-                                    });
-                                }
-                                // Also check for removed nodes (banner might be hidden)
-                                if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
-                                    mutation.removedNodes.forEach(function(node) {
-                                        if (node === cookieBannerElement) {
-                                            cookieBannerCurrentlyVisible = false;
-                                            console.log('[COOKIE_BANNER_HIDDEN]', JSON.stringify({
-                                                timestamp: new Date().toISOString(),
-                                                url: window.location.href,
-                                                reason: 'element_removed_from_dom'
-                                            }));
-                                        }
-                                    });
-                                }
-                            });
-                            if (shouldCheck && !cookieBannerDetected) {
-                                setTimeout(detectCookieBanner, 100);
-                            }
-                        });
-                        
-                        cookieBannerObserver.observe(document, {
-                            childList: true,
-                            subtree: true
-                        });
-                        
-                        console.log('[COOKIE_BANNER_MONITOR]', 'Cookie banner observer initialized.');
-                    }
-                }
-
-                // Initialize cookie banner detection
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', setupCookieBannerObserver);
-                } else {
-                    setupCookieBannerObserver();
-                }
-
-                console.log('[DATALAYER_MONITOR]', 'DataLayer monitoring injected.');
-                console.log('[COOKIE_MONITOR]', 'Client-side cookie observer initialized.');
-            """)
+        # Load and inject the monitoring script from external file
+        monitor_script_path = os.path.join(os.path.dirname(__file__), "browser-monitor.js")
+        try:
+            with open(monitor_script_path, 'r', encoding='utf-8') as f:
+                monitor_script = f.read()
+            site_page.add_init_script(monitor_script)
+            print(f"✅ Loaded monitoring script from: {monitor_script_path}", flush=True)
+        except FileNotFoundError:
+            print(f"❌ Monitoring script not found: {monitor_script_path}", flush=True)
+        except Exception as e:
+            print(f"❌ Error loading monitoring script: {e}", flush=True)
 
         def handle_console(msg):
+            """UnifiedResponseProcessor: Handle all console messages from the browser"""
             try:
                 text = msg.text
+                
+                # DataLayer Event Processing
                 if text.startswith('[DATALAYER_EVENT]'):
                     event_data = json.loads(text.replace('[DATALAYER_EVENT] ', ''))
-                    event_name = event_data.get('event', 'unknown')
+                    event_name = event_data.get('event', 'Object - expand for details')
                     data_field = event_data.get('data', {})
-                    if event_name == 'unknown' and isinstance(data_field, dict) and data_field.get('0') == 'consent':
+                    
+                    # Handle consent events
+                    if isinstance(data_field, dict) and data_field.get('0') == 'consent':
+                        # Legacy consent format
+                        consent_action = data_field.get('1', 'unknown')
+                        consent_data = data_field.get('2', {})
+                        
                         structured_log = create_structured_log(
-                            "consent", f"consent_{data_field.get('1', 'unknown')}",
-                            data_field.get('2', {}),
+                            "consent", f"consent_{consent_action}",
+                            consent_data,
                             {"source": "datalayer", "raw_event": event_data}
                         )
-                        event_name = f"consent_{data_field.get('1', 'unknown')}"
-                        data_field_2 = data_field.get('2', {})
-                
-                        if event_name == 'consent_update':
-                            # Check if all consent categories are denied
-                            consent_categories = [
-                                'ad_storage', 'analytics_storage', 'ad_personalization', 
-                                'ad_user_data', 'functionality_storage', 'personalization_storage', 
-                                'security_storage'
-                            ]
-                            
-                            all_denied = True
-                            any_consent_found = False
-                            
-                            for category in consent_categories:
-                                if category in data_field_2:
-                                    any_consent_found = True
-                                    if data_field_2[category] != 'denied':
-                                        all_denied = False
-                                        break
-                            
-                            if any_consent_found and all_denied:
-                                # All consent categories are denied - user declined consent
-                                structured_log = create_structured_log(
-                                    "consent", "user_consent_declined",
-                                    {
-                                        "consent_status": "declined",
-                                        "all_categories_denied": True,
-                                        "categories": data_field_2,
-                                        "declined_categories": consent_categories,
-                                        "url": "detected_from_datalayer"
-                                    },
-                                    {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
-                                )
-                            elif any_consent_found:
-                                # Check if any categories are granted (consent accepted)
-                                granted_categories = []
-                                denied_categories = []
-                                
-                                for category in consent_categories:
-                                    if category in data_field_2:
-                                        if data_field_2[category] == 'granted':
-                                            granted_categories.append(category)
-                                        elif data_field_2[category] == 'denied':
-                                            denied_categories.append(category)
-                                
-                                if granted_categories:
-                                    # User accepted some or all consent
-                                    structured_log = create_structured_log(
-                                        "consent", "user_consent_given",
-                                        {
-                                            "consent_status": "accepted",
-                                            "granted_categories": granted_categories,
-                                            "denied_categories": denied_categories,
-                                            "categories": data_field_2,
-                                            "url": "detected_from_datalayer"
-                                        },
-                                        {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
-                                    )
-                                else:
-                                    # Regular consent update with no clear accept/deny
-                                    structured_log = create_structured_log(
-                                        "datalayer", event_name, {"data_layer_data": data_field_2},
-                                        {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
-                                    )
+                        output_queue.put(structured_log)
                         
                     else:
+                        # Regular DataLayer event
                         structured_log = create_structured_log(
                             "datalayer", event_name, {"data_layer_data": data_field},
                             {"source": "datalayer", "timestamp_string": event_data.get('timestamp', '')}
                         )
-                    output_queue.put(structured_log)
+                        output_queue.put(structured_log)
                 elif text.startswith('[COOKIE_EVENT]'):
                     cookie_data = json.loads(text.replace('[COOKIE_EVENT] ', ''))
                     action = cookie_data.get('action', 'unknown')
                     cookie_name = cookie_data.get('cookie_name')
+
                     structured_log = create_structured_log(
                         "cookie", f"cookie_{action}",
                         {
@@ -1234,6 +773,8 @@ def run_browser_with_proxy():
                         }
                     )
                     output_queue.put(structured_log)
+                        
+                # Monitor Messages
                 elif text.startswith('[DATALAYER_MONITOR]'):
                     monitor_msg = text.replace('[DATALAYER_MONITOR] ', '')
                     structured_log = create_structured_log(
@@ -1241,6 +782,7 @@ def run_browser_with_proxy():
                         {"source": "datalayer"}
                     )
                     output_queue.put(structured_log)
+                    
                 elif text.startswith('[COOKIE_MONITOR]'):
                     monitor_msg = text.replace('[COOKIE_MONITOR] ', '')
                     structured_log = create_structured_log(
@@ -1248,6 +790,8 @@ def run_browser_with_proxy():
                         {"source": "client_observer"}
                     )
                     output_queue.put(structured_log)
+                    
+                # Cookie Banner Events
                 elif text.startswith('[COOKIE_BANNER_DETECTED]'):
                     banner_data = json.loads(text.replace('[COOKIE_BANNER_DETECTED] ', ''))
                     structured_log = create_structured_log(
@@ -1264,7 +808,8 @@ def run_browser_with_proxy():
                             "detection_method": banner_data.get('detection_method'),
                             "bounding_rect": banner_data.get('bounding_rect'),
                             "visible": banner_data.get('visible'),
-                            "url": banner_data.get('url')
+                            "url": banner_data.get('url'),
+                            "cmp_vendor": banner_data.get('cmp_vendor')
                         },
                         {
                             "source": "cookie_banner_detector",
@@ -1272,6 +817,42 @@ def run_browser_with_proxy():
                         }
                     )
                     output_queue.put(structured_log)
+                    
+                    # Extract and log cookies found before banner detection
+                    cookies_found = extract_cookies_from_buffer()
+                    if cookies_found:
+                        print(f"🍪 Cookie Banner Detected - Found {len(cookies_found)} cookies in buffer:", flush=True)
+                        marketing_cookies = [c for c in cookies_found if c.get('is_marketing', False)]
+                        non_marketing_cookies = [c for c in cookies_found if not c.get('is_marketing', False)]
+                        
+                        print(f"   📊 Marketing cookies: {len(marketing_cookies)}", flush=True)
+                        for cookie in marketing_cookies:
+                            print(f"      - {cookie['name']} ({cookie['action']})", flush=True)
+                        
+                        print(f"   📊 Non-marketing cookies: {len(non_marketing_cookies)}", flush=True)
+                        for cookie in non_marketing_cookies:
+                            print(f"      - {cookie['name']} ({cookie['action']})", flush=True)
+                        
+                        # Create structured log for cookie summary
+                        cookie_summary_log = create_structured_log(
+                            "cookie_banner", "pre_banner_cookie_summary",
+                            {
+                                "total_cookies": len(cookies_found),
+                                "marketing_cookies_count": len(marketing_cookies),
+                                "non_marketing_cookies_count": len(non_marketing_cookies),
+                                "marketing_cookies": marketing_cookies,
+                                "non_marketing_cookies": non_marketing_cookies,
+                                "all_cookies": cookies_found
+                            },
+                            {
+                                "source": "cookie_banner_detector",
+                                "timestamp": banner_data.get('timestamp')
+                            }
+                        )
+                        output_queue.put(cookie_summary_log)
+                    else:
+                        print(f"🍪 Cookie Banner Detected - No cookies found in buffer", flush=True)
+                    
                 elif text.startswith('[COOKIE_BANNER_BUTTONS]'):
                     button_data = json.loads(text.replace('[COOKIE_BANNER_BUTTONS] ', ''))
                     structured_log = create_structured_log(
@@ -1279,7 +860,8 @@ def run_browser_with_proxy():
                         {
                             "buttons": button_data.get('buttons', []),
                             "button_count": len(button_data.get('buttons', [])),
-                            "url": button_data.get('url')
+                            "url": button_data.get('url'),
+                            "cmp_vendor": button_data.get('cmp_vendor')
                         },
                         {
                             "source": "cookie_banner_detector",
@@ -1287,6 +869,7 @@ def run_browser_with_proxy():
                         }
                     )
                     output_queue.put(structured_log)
+                    
                 elif text.startswith('[COOKIE_BANNER_MONITOR]'):
                     monitor_msg = text.replace('[COOKIE_BANNER_MONITOR] ', '')
                     structured_log = create_structured_log(
@@ -1294,56 +877,8 @@ def run_browser_with_proxy():
                         {"source": "cookie_banner_detector"}
                     )
                     output_queue.put(structured_log)
-                elif text.startswith('[MARKETING_COOKIE_VIOLATION]'):
-                    violation_data = json.loads(text.replace('[MARKETING_COOKIE_VIOLATION] ', ''))
-                    structured_log = create_structured_log(
-                        "violation", "marketing_cookie_while_banner_visible",
-                        {
-                            "violation_type": violation_data.get('violation_type'),
-                            "violating_cookie_name": violation_data.get('violating_cookie_name'),
-                            "violating_cookie_value": violation_data.get('violating_cookie_value'),
-                            "action": violation_data.get('action'),
-                            "domain": violation_data.get('domain'),
-                            "url": violation_data.get('url'),
-                            "severity": violation_data.get('severity'),
-                            "compliance_risk": violation_data.get('compliance_risk'),
-                            "message": violation_data.get('message'),
-                            # Include comprehensive cookie context
-                            "all_marketing_cookies": violation_data.get('all_marketing_cookies'),
-                            "all_other_cookies": violation_data.get('all_other_cookies'),
-                            "total_marketing_cookies": violation_data.get('total_marketing_cookies'),
-                            "total_other_cookies": violation_data.get('total_other_cookies'),
-                            # Keep legacy field for backward compatibility
-                            "cookie_name": violation_data.get('violating_cookie_name'),
-                            "cookie_value": violation_data.get('violating_cookie_value')
-                        },
-                        {
-                            "source": "compliance_monitor",
-                            "timestamp": violation_data.get('timestamp')
-                        }
-                    )
-                    output_queue.put(structured_log)
-                elif text.startswith('[MARKETING_COOKIES_ALREADY_SET]'):
-                    preload_data = json.loads(text.replace('[MARKETING_COOKIES_ALREADY_SET] ', ''))
-                    structured_log = create_structured_log(
-                        "violation", "marketing_cookies_preloaded",
-                        {
-                            "violation_type": "marketing_cookies_before_banner",
-                            "domain": preload_data.get('domain'),
-                            "url": preload_data.get('url'),
-                            "marketing_cookies": preload_data.get('marketing_cookies'),
-                            "cookie_count": preload_data.get('cookie_count'),
-                            "severity": preload_data.get('severity'),
-                            "compliance_risk": preload_data.get('compliance_risk'),
-                            "message": preload_data.get('message'),
-                            "banner_just_detected": preload_data.get('banner_just_detected')
-                        },
-                        {
-                            "source": "compliance_monitor",
-                            "timestamp": preload_data.get('timestamp')
-                        }
-                    )
-                    output_queue.put(structured_log)
+                    
+                # Cookie Banner State Changes
                 elif text.startswith('[COOKIE_BANNER_HIDDEN]'):
                     hidden_data = json.loads(text.replace('[COOKIE_BANNER_HIDDEN] ', ''))
                     structured_log = create_structured_log(
@@ -1358,14 +893,19 @@ def run_browser_with_proxy():
                         }
                     )
                     output_queue.put(structured_log)
-            except (json.JSONDecodeError, KeyError):
-                if ('[DATALAYER_EVENT]' in text or '[DATALAYER_MONITOR]' in text or 
-                    '[COOKIE_EVENT]' in text or '[COOKIE_MONITOR]' in text or
-                    '[COOKIE_BANNER_DETECTED]' in text or '[COOKIE_BANNER_BUTTONS]' in text or 
-                    '[COOKIE_BANNER_MONITOR]' in text or '[MARKETING_COOKIE_VIOLATION]' in text or 
-                    '[MARKETING_COOKIES_ALREADY_SET]' in text or '[COOKIE_BANNER_HIDDEN]' in text or 
-                    '[SCRIPT_INJECTION]' in text or '[FRAME_CHECK]' in text):
+                    
+            except (json.JSONDecodeError, KeyError) as e:
+                # Handle malformed JSON or missing keys
+                if any(marker in text for marker in [
+                    '[DATALAYER_EVENT]', '[DATALAYER_MONITOR]', '[COOKIE_EVENT]', 
+                    '[COOKIE_MONITOR]', '[COOKIE_BANNER_DETECTED]', '[COOKIE_BANNER_BUTTONS]', 
+                    '[COOKIE_BANNER_MONITOR]', '[MARKETING_COOKIE_VIOLATION]', 
+                    '[MARKETING_COOKIES_ALREADY_SET]', '[COOKIE_BANNER_HIDDEN]', 
+                    '[GDPR_COOKIE_AUDIT]', '[SCRIPT_INJECTION]', '[FRAME_CHECK]'
+                ]):
                     output_queue.put(f"CLIENT: {text}")
+                    if DEBUG_MODE:
+                        print(f"⚠️  Parse error in console message: {e}", flush=True)
 
         site_page.on("console", handle_console)
 
@@ -1389,6 +929,9 @@ def run_browser_with_proxy():
             
             if not current_url or current_url == last_logged_url:
                 return False
+            
+            # Clear message buffer on URL change
+            clear_message_buffer()
             
             data = {
                 "to_url": current_url,
@@ -1431,12 +974,6 @@ def run_browser_with_proxy():
                 }
                 log_url_change(current_url, "cdp_frame_navigated", "url_change", None, extra_data)
 
-        def handle_cdp_history_entry_added(event):
-            """Handle when new history entries are added (pushState/replaceState)"""
-            entry = event.get('entry', {})
-            current_url = entry.get('url', '')
-            extra_data = {"title": entry.get('title', '')}
-            log_url_change(current_url, "cdp_history_entry", "spa_pageview", "history_entry", extra_data)
 
         def handle_cdp_navigated_within_document(event):
             """Handle same-document navigation (hash changes, pushState without full reload)"""

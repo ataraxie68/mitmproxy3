@@ -47,7 +47,8 @@ let CONFIG = {
     ga4Icon: '📊',
     typeIconMap: {
         'consent': '🛡️', 'error': '❌', 'warning': '⚠️', 'info': '💡', 'success': '✅',
-        'datalayer': '📋', 'url_change': '🌐', 'cookie': '🍪', 'request_status_update': '📡'
+        'datalayer': '📋', 'url_change': '🌐', 'cookie': '🍪', 'request_status_update': '📡',
+
     },
     statusColors: {
         info: '#64B5F6', success: '#66BB6A', warning: '#FFB74D', error: '#F06292'
@@ -119,7 +120,7 @@ async function loadConfig() {
         }
 
         console.log('Configuration loaded successfully');
-        
+
         // Validate that ga4Limits were loaded correctly
         if (CONFIG.ga4Limits && CONFIG.ga4Limits.event_name) {
             console.log('✅ GA4 parameter validation ready');
@@ -255,11 +256,8 @@ function updateStatus(message, type = 'info') {
 
 // ===== CONSENT STATUS MANAGEMENT =====
 function updateConsentStatusHeader() {
-    console.log('🎨 Updating consent status dot, current status:', consentStatus.status);
-
     const consentDot = document.getElementById('consentIndicator');
     if (!consentDot) {
-        console.log('❌ Consent indicator dot not found in DOM');
         return;
     }
 
@@ -272,30 +270,24 @@ function updateConsentStatusHeader() {
 
     switch (consentStatus.status) {
         case 'declined':
-            console.log('🚫 Setting DECLINED dot styling');
             consentDot.classList.add('declined');
             consentDot.title = `Consent Status: DECLINED • ${consentStatus.timestamp || 'Unknown time'}`;
             break;
         case 'accepted':
-            console.log('✅ Setting ACCEPTED dot styling');
             consentDot.classList.add('accepted');
             consentDot.title = `Consent Status: ACCEPTED • ${consentStatus.timestamp || 'Unknown time'}`;
             break;
         default:
-            console.log('❓ Setting UNKNOWN status dot');
             consentDot.classList.add('unknown');
             consentDot.title = 'Consent Status: Unknown - No consent decision detected yet';
             break;
     }
 
-    console.log('🎨 Dot update complete. Classes:', consentDot.className);
-    console.log('🎨 Dot styles - display:', consentDot.style.display, 'visibility:', consentDot.style.visibility);
+    // Force a repaint to ensure the changes are visible
+    consentDot.offsetHeight;
 }
 
 function checkConsentInDataLayer(data) {
-    console.log('🔍 Checking consent in DataLayer:', data);
-
-    // Look for consent_update events with all categories denied
     if (data && typeof data === 'object') {
         const consentCategories = [
             'ad_storage', 'analytics_storage', 'ad_personalization',
@@ -303,53 +295,54 @@ function checkConsentInDataLayer(data) {
             'security_storage'
         ];
 
-        let allDenied = false;
+        let allDenied = true; // Start assuming all denied
         let anyConsentFound = false;
         let deniedCount = 0;
-
-        console.log('🔍 Checking categories:', consentCategories);
+        let grantedCount = 0;
+        const foundCategories = [];
 
         // Check if this is a consent update with categories
         for (const category of consentCategories) {
-            if (data[category]) {
+            if (data[category] !== undefined && data[category] !== null) {
                 anyConsentFound = true;
-                console.log(`📊 Found category ${category}: ${data[category]}`);
+                foundCategories.push(category);
+
                 if (data[category] === 'denied') {
                     deniedCount++;
-                } else {
-                    console.log(`✅ Category ${category} is not denied: ${data[category]}`);
+                } else if (data[category] === 'granted') {
+                    grantedCount++;
+                    allDenied = false; // If any category is granted, not all denied
                 }
             }
         }
 
-        allDenied = anyConsentFound && deniedCount === Object.keys(data).filter(key => consentCategories.includes(key)).length;
-
-        console.log(`📈 Consent analysis: Found ${deniedCount} denied categories out of ${Object.keys(data).filter(key => consentCategories.includes(key)).length} total consent categories`);
-
-        if (anyConsentFound && allDenied) {
-            console.log('🚫 ALL CONSENT DECLINED - Updating header');
-            consentStatus.status = 'declined';
-            consentStatus.timestamp = new Date().toLocaleTimeString();
-            consentStatus.categories = data;
-            updateConsentStatusHeader();
-            return true;
-        } else if (anyConsentFound && !allDenied) {
-            console.log('✅ SOME CONSENT GIVEN - Updating header');
-            console.log('✅ Current consent status before update:', consentStatus.status);
-            // Some consent was given
-            consentStatus.status = 'accepted';
-            consentStatus.timestamp = new Date().toLocaleTimeString();
-            consentStatus.categories = data;
-            console.log('✅ Updated consent status to:', consentStatus.status);
-            updateConsentStatusHeader();
-            return true;
-        } else if (anyConsentFound) {
-            console.log('❓ Consent categories found but status unclear');
-        } else {
-            console.log('❌ No consent categories found in data');
+        if (anyConsentFound) {
+            if (allDenied && deniedCount > 0) {
+                consentStatus.status = 'declined';
+                consentStatus.timestamp = new Date().toLocaleTimeString();
+                consentStatus.categories = data;
+                updateConsentStatusHeader();
+                return true;
+            } else if (grantedCount > 0) {
+                consentStatus.status = 'accepted';
+                consentStatus.timestamp = new Date().toLocaleTimeString();
+                consentStatus.categories = data;
+                updateConsentStatusHeader();
+                return true;
+            } else {
+                // Check if any category has a truthy value that might indicate consent
+                const hasAnyGranted = Object.values(data).some(value =>
+                    value === true || value === 'true' || value === 'granted' || value === 'accepted'
+                );
+                if (hasAnyGranted) {
+                    consentStatus.status = 'accepted';
+                    consentStatus.timestamp = new Date().toLocaleTimeString();
+                    consentStatus.categories = data;
+                    updateConsentStatusHeader();
+                    return true;
+                }
+            }
         }
-    } else {
-        console.log('❌ Invalid data structure for consent check');
     }
     return false;
 }
@@ -383,7 +376,7 @@ function checkGA4ParameterLength(paramName, paramValue, platform) {
     if (!platform || (platform !== 'GA4' && platform !== 'sGTM' && platform !== 'Server-side GTM')) {
         return null;
     }
-    
+
     // Check if paramValue exists and has length
     if (!paramValue || typeof paramValue !== 'string') {
         return null;
@@ -399,7 +392,7 @@ function checkGA4ParameterLength(paramName, paramValue, platform) {
     const specificLimit = CONFIG.ga4Limits[paramName];
     const defaultLimit = CONFIG.ga4Limits.custom_parameter;
     const limit = specificLimit || defaultLimit;
-    
+
     if (!limit) {
         console.warn(`GA4 parameter validation: No limit found for parameter '${paramName}' and no default limit available`);
         return null;
@@ -416,7 +409,7 @@ function checkGA4ParameterLength(paramName, paramValue, platform) {
             severity: current > limit * 1.5 ? 'error' : 'warning'
         };
     }
-    
+
     return null;
 }
 
@@ -450,7 +443,7 @@ function highlightUniversalParameters(paramName, paramValue) {
 function highlightLongParameters(detailsText, platform) {
     console.log('highlightLongParameters called with platform:', platform);
     console.log('Input text lines:', detailsText.split('\n').length);
-    
+
     const lines = detailsText.split('\n');
     const processedLines = lines.map(line => {
         const match = line.match(/^([^:]+):\s*(.+)$/);
@@ -489,9 +482,9 @@ class EventFormatter {
         }
 
         const parseNestedJson = (value) => {
-            if (typeof value === 'string' && 
-                ((value.startsWith('{') && value.endsWith('}')) || 
-                 (value.startsWith('[') && value.endsWith(']')))) {
+            if (typeof value === 'string' &&
+                ((value.startsWith('{') && value.endsWith('}')) ||
+                    (value.startsWith('[') && value.endsWith(']')))) {
                 try {
                     return JSON.parse(value);
                 } catch (e) {
@@ -518,19 +511,19 @@ class EventFormatter {
     static format(eventType, data, metadata, options = {}) {
         const {
             showUrl = true,
-            showRawData = true, 
+            showRawData = true,
             showResponse = true,
             showEventData = true,
             platform = null
         } = options;
-        
+
         const sections = [];
-        
+
         // 📍 REQUEST URL SECTION
         if (showUrl && metadata?.request_url) {
             sections.push(`📍 Request URL:\n${metadata.request_url}`);
         }
-        
+
         // 📊 EVENT DATA SECTION (for non-raw events)
         if (showEventData && data && eventType !== 'raw') {
             const eventData = this.formatEventData(data, eventType);
@@ -538,25 +531,25 @@ class EventFormatter {
                 sections.push(`📊 Event Data:\n${eventData}`);
             }
         }
-        
+
         // 📋 RAW DATA SECTION
         if (showRawData && metadata?.raw_data) {
             const cleanedData = this.cleanRawData(metadata.raw_data);
             let rawSection = `📋 Raw Data:\n${this.formatObject(cleanedData, 2)}`;
-            
+
             // Apply GA4 parameter highlighting if needed
             if (platform && this.isGA4Platform(platform)) {
                 rawSection = this.applyParameterHighlighting(rawSection, platform);
             }
-            
+
             sections.push(rawSection);
         }
-        
+
         // 📡 RESPONSE INFO SECTION
         if (showResponse && metadata?.response_headers) {
             sections.push(`📡 Response Info:\n${this.formatObject(metadata.response_headers, 2)}`);
         }
-        
+
         return sections.join('\n\n');
     }
 
@@ -568,23 +561,23 @@ class EventFormatter {
         delete cleaned._request_host;
         return cleaned;
     }
-    
+
     // Check if platform needs GA4 parameter highlighting
     static isGA4Platform(platform) {
         return platform === 'GA4' || platform === 'sGTM' || platform === 'Server-side GTM';
     }
-    
+
     // Apply parameter highlighting for GA4 platforms
     static applyParameterHighlighting(text, platform) {
         if (!this.isGA4Platform(platform)) return text;
-        
+
         const lines = text.split('\n');
         const processedLines = lines.map(line => {
             const match = line.match(/^([^:]+):\s*(.+)$/);
             if (match) {
                 const paramName = match[1].trim();
                 const paramValue = match[2].trim();
-                
+
                 // Check GA4 parameter length limits
                 const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
                 if (lengthCheck) {
@@ -592,7 +585,7 @@ class EventFormatter {
                     const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
                     return `${paramName}: ${paramValue}${warningText}`;
                 }
-                
+
                 // Apply universal parameter highlighting
                 const highlighted = this.highlightImportantParams(paramName, paramValue);
                 if (highlighted !== paramValue) {
@@ -601,15 +594,15 @@ class EventFormatter {
             }
             return line;
         });
-        
+
         return processedLines.join('\n');
     }
-    
+
     // Highlight important parameters
     static highlightImportantParams(paramName, paramValue) {
         const importantParams = {
             'pixel_id': 'pixel-id-highlight',
-            'tracking_id': 'tracking-id-highlight', 
+            'tracking_id': 'tracking-id-highlight',
             'event_name': 'event-name-highlight',
             'event_id': 'event-id-highlight',
             'conversion_id': 'conversion-id-highlight',
@@ -617,26 +610,26 @@ class EventFormatter {
             'user_id': 'user-id-highlight',
             'client_id': 'client-id-highlight'
         };
-        
+
         const lowerParamName = paramName.toLowerCase();
         for (const [key, cssClass] of Object.entries(importantParams)) {
             if (lowerParamName.includes(key.replace('_', '')) || lowerParamName.includes(key)) {
                 return `<span class="${cssClass}">${paramValue}</span>`;
             }
         }
-        
+
         // Highlight long parameters
         if (paramValue.length > 50) {
             return `<span class="long-param-value">${paramValue}</span>`;
         }
-        
+
         return paramValue;
     }
 
     // Format event-specific data based on event type
     static formatEventData(data, eventType) {
         if (!data) return '';
-        
+
         switch (eventType) {
             case 'datalayer':
                 return this.formatDataLayerEvent(data);
@@ -650,25 +643,25 @@ class EventFormatter {
                 return this.formatGenericEvent(data);
         }
     }
-    
+
     // Format generic event data
     static formatGenericEvent(data) {
         const lines = [];
         const relevantFields = ['page_url', 'referrer_url', 'client_id', 'user_id', 'session_id', 'timestamp', 'request_hash', 'event_type'];
-        
+
         // Add relevant fields
         for (const field of relevantFields) {
             if (data[field]) {
                 lines.push(`${field}: ${data[field]}`);
             }
         }
-        
+
         // Add extra info
         if (data.extra_info && Array.isArray(data.extra_info)) {
             lines.push('\nExtra Info:');
             data.extra_info.forEach(info => lines.push(`  • ${info}`));
         }
-        
+
         // Add mapped data
         if (data.mapped_data && Object.keys(data.mapped_data).length > 0) {
             lines.push('\nMapped Data:');
@@ -676,13 +669,13 @@ class EventFormatter {
                 lines.push(`  ${key}: ${value}`);
             }
         }
-        
+
         // Add debug info
         if (data.debug_info) {
             lines.push('\nDebug Info:');
             lines.push(this.formatObject(data.debug_info, 2));
         }
-        
+
         // Add JavaScript endpoint info
         if (data.js_info) {
             lines.push('\nJavaScript Info:');
@@ -692,18 +685,18 @@ class EventFormatter {
                 lines.push(`  Pattern: ${data.js_info.pattern}`);
             }
         }
-        
+
         return lines.join('\n');
     }
 
     // Format DataLayer events
     static formatDataLayerEvent(data) {
         const lines = [];
-        
+
         if (data.event_name) {
             lines.push(`Event: ${data.event_name}`);
         }
-        
+
         if (data.data_layer_data) {
             lines.push('\nDataLayer Data:');
             lines.push(this.formatObject(data.data_layer_data, 2));
@@ -711,28 +704,30 @@ class EventFormatter {
             lines.push('\nDataLayer Data:');
             lines.push(this.formatObject(data, 2));
         }
-        
+
         return lines.join('\n');
     }
-    
+
     // Format Marketing Pixel events
     static formatMarketingPixelEvent(data) {
         const lines = [];
-        
+
         if (data.platform) lines.push(`Platform: ${data.platform}`);
         if (data.pixel_id) lines.push(`Pixel ID: ${data.pixel_id}`);
         if (data.event_name) lines.push(`Event: ${data.event_name}`);
-        
+        if (data.request_method) lines.push(`Method: ${data.request_method}`);
+        if (data.request_hash) lines.push(`Request Hash: ${data.request_hash}`);
+
         // Add platform-specific tracking parameters
         const trackingParams = this.getTrackingParams(data);
         if (trackingParams.length > 0) {
             lines.push('\nTracking Parameters:');
             trackingParams.forEach(param => lines.push(`  ${param}`));
         }
-        
+
         return lines.join('\n');
     }
-    
+
     // Get tracking parameters for marketing pixels
     static getTrackingParams(data) {
         const params = [];
@@ -748,7 +743,7 @@ class EventFormatter {
             'Twitter/X': ['twclid'],
             'Snapchat': ['scclid']
         };
-        
+
         const platformParams = platformTrackingParamMap[data.platform];
         if (platformParams) {
             for (const paramName of platformParams) {
@@ -761,48 +756,204 @@ class EventFormatter {
                 }
             }
         }
-        
+
         return params;
     }
 
     // Format Cookie events
     static formatCookieEvent(data) {
-        const lines = [];
-        
-        // Basic cookie info
-        if (data.action) lines.push(`Action: ${data.action}`);
-        if (data.path) lines.push(`Path: ${data.path}`);
-        if (data.cookie_type) lines.push(`Type: ${data.cookie_type}`);
-        if (data.cookie_count) lines.push(`Count: ${data.cookie_count}`);
-        if (data.domain || data.host) lines.push(`Domain: ${data.domain || data.host}`);
-        
-        // Client-side cookie values
+        let html = '';
+
+        // Basic cookie info summary in a clean header
+        const summaryInfo = [];
+        if (data.action) summaryInfo.push(`${data.action}`);
+        if (data.cookie_type) summaryInfo.push(`${data.cookie_type}`);
+        if (data.cookie_count) summaryInfo.push(`${data.cookie_count} cookies`);
+        if (data.domain || data.host) summaryInfo.push(`${data.domain || data.host}`);
+        if (data.path && data.path !== '/') summaryInfo.push(`${data.path}`);
+
+        if (summaryInfo.length > 0) {
+            html += `<div class="cookie-header">${summaryInfo.join(' • ')}</div>`;
+        }
+
+        // Security and tracking indicators
+        const indicators = [];
+        if (data.http_only_cookies_count > 0) indicators.push(`🔒 ${data.http_only_cookies_count} HttpOnly`);
+        if (data.secure_cookies_count > 0) indicators.push(`🛡️ ${data.secure_cookies_count} Secure`);
+        if (data.tracking_domain) indicators.push('📊 Tracking Domain');
+
+        if (indicators.length > 0) {
+            html += `<div class="cookie-indicators">${indicators.join(' • ')}</div>`;
+        }
+
+        // Client-side cookie changes
         if (data.cookie_type === 'client_side') {
-            if (data.new_value !== undefined) {
-                lines.push(`New Value: ${data.new_value || '(empty)'}`);
-            }
-            if (data.old_value !== undefined) {
-                lines.push(`Old Value: ${data.old_value || '(empty)'}`);
+            if (data.new_value !== undefined || data.old_value !== undefined) {
+                html += '<div class="cookie-change">';
+                if (data.old_value !== undefined && data.new_value !== undefined) {
+                    html += `<div class="change-item">`;
+                    html += `<span class="change-label">Changed:</span>`;
+                    html += `<div class="change-values">`;
+                    html += `<div class="old-value">📤 ${data.old_value || '(empty)'}</div>`;
+                    html += `<div class="new-value">📥 ${data.new_value || '(empty)'}</div>`;
+                    html += `</div></div>`;
+                } else if (data.new_value !== undefined) {
+                    html += `<div class="change-item"><span class="change-label">Set:</span> <code>${data.new_value || '(empty)'}</code></div>`;
+                } else if (data.old_value !== undefined) {
+                    html += `<div class="change-item"><span class="change-label">Was:</span> <code>${data.old_value || '(empty)'}</code></div>`;
+                }
+                html += '</div>';
             }
         }
-        
-        // Cookie list
+
+        // Enhanced cookie details (server-side) - Card format
+        if (data.detailed_cookies && Array.isArray(data.detailed_cookies) && data.detailed_cookies.length > 0) {
+            html += '<div class="cookie-list">';
+
+            data.detailed_cookies.forEach((cookie, index) => {
+                html += '<div class="cookie-card">';
+
+                // Cookie name and basic info
+                html += '<div class="cookie-name-row">';
+                html += `<span class="cookie-name">${cookie.name}</span>`;
+                if (cookie.source) {
+                    html += `<span class="cookie-source">(${cookie.source})</span>`;
+                }
+                html += '</div>';
+
+                // Cookie value
+                if (cookie.value) {
+                    const displayValue = cookie.value.length > 50 ?
+                        cookie.value.substring(0, 50) + '...' : cookie.value;
+                    html += `<div class="cookie-value" title="${cookie.value}"><code>${displayValue}</code></div>`;
+                } else {
+                    html += `<div class="cookie-value empty">(no value)</div>`;
+                }
+
+                // Cookie properties in a clean layout
+                const properties = [];
+                if (cookie.domain) properties.push(`🌐 ${cookie.domain}`);
+                if (cookie.path && cookie.path !== '/') properties.push(`📁 ${cookie.path}`);
+
+                // Security attributes
+                const security = [];
+                if (cookie.http_only) security.push('🔒 HttpOnly');
+                if (cookie.secure) security.push('🛡️ Secure');
+                if (cookie.same_site && cookie.same_site !== 'None') security.push(`🔗 SameSite=${cookie.same_site}`);
+                if (cookie.accessible === false) security.push('❌ Not Accessible');
+
+                if (properties.length > 0) {
+                    html += `<div class="cookie-properties">${properties.join(' • ')}</div>`;
+                }
+
+                if (security.length > 0) {
+                    html += `<div class="cookie-security">${security.join(' • ')}</div>`;
+                }
+
+                // Expiration info
+                if (cookie.expires) {
+                    html += `<div class="cookie-expires">⏰ Expires: ${cookie.expires}</div>`;
+                } else if (cookie.max_age) {
+                    html += `<div class="cookie-expires">⏱️ Max-Age: ${cookie.max_age}s</div>`;
+                } else {
+                    html += `<div class="cookie-expires">🔄 Session cookie</div>`;
+                }
+
+                html += '</div>'; // End cookie-card
+            });
+
+            html += '</div>'; // End cookie-list
+        }
+
+        // Client-side cookie metadata - Card format
+        if (data.cookie_metadata) {
+            const meta = data.cookie_metadata;
+            html += '<div class="cookie-metadata-card">';
+            html += '<div class="metadata-header">📋 Cookie Metadata</div>';
+
+            // Main cookie info
+            html += '<div class="metadata-section">';
+            html += `<div class="metadata-row"><span class="meta-label">Name:</span> <code>${meta.name}</code></div>`;
+            if (meta.value) {
+                const displayValue = meta.value.length > 40 ? meta.value.substring(0, 40) + '...' : meta.value;
+                html += `<div class="metadata-row"><span class="meta-label">Value:</span> <code title="${meta.value}">${displayValue}</code></div>`;
+            } else {
+                html += `<div class="metadata-row"><span class="meta-label">Value:</span> <span class="empty-value">(empty)</span></div>`;
+            }
+            html += `<div class="metadata-row"><span class="meta-label">Domain:</span> ${meta.domain}</div>`;
+            html += `<div class="metadata-row"><span class="meta-label">Path:</span> ${meta.path}</div>`;
+            html += '</div>';
+
+            // Security and accessibility
+            const securityItems = [];
+            if (meta.http_only) securityItems.push('🔒 HttpOnly');
+            if (meta.secure) securityItems.push('🛡️ Secure');
+            if (meta.same_site) securityItems.push(`🔗 SameSite=${meta.same_site}`);
+            if (!meta.accessible) securityItems.push('❌ Not Accessible');
+
+            if (securityItems.length > 0) {
+                html += `<div class="metadata-security">${securityItems.join(' • ')}</div>`;
+            }
+
+            // Context information
+            if (meta.source || meta.type || meta.user_agent || meta.referrer || meta.page_title) {
+                html += '<div class="metadata-context">';
+                if (meta.source) html += `<div class="context-item">📍 Source: ${meta.source}</div>`;
+                if (meta.type) html += `<div class="context-item">🏷️ Type: ${meta.type}</div>`;
+                if (meta.expires) html += `<div class="context-item">⏰ Expires: ${meta.expires}</div>`;
+                if (meta.max_age) html += `<div class="context-item">⏱️ Max-Age: ${meta.max_age}s</div>`;
+                if (meta.user_agent) html += `<div class="context-item">🌐 User-Agent: ${meta.user_agent.substring(0, 50)}...</div>`;
+                if (meta.referrer) html += `<div class="context-item">🔗 Referrer: ${meta.referrer}</div>`;
+                if (meta.page_title) html += `<div class="context-item">📄 Page: ${meta.page_title}</div>`;
+                html += '</div>';
+            }
+
+            // Consent status
+            if (meta.consent_status) {
+                html += '<div class="consent-status">';
+                html += '<div class="consent-header">🛡️ Consent Status</div>';
+                const marketingStatus = meta.consent_status.marketing_consent ? '✅ Granted' : '❌ Not Granted';
+                const bannerStatus = meta.consent_status.banner_visible ? '👁️ Visible' : '🙈 Hidden';
+                const checkedStatus = meta.consent_status.consent_checked ? '✓ Checked' : '⏳ Pending';
+                html += `<div class="consent-item">Marketing: ${marketingStatus}</div>`;
+                html += `<div class="consent-item">Banner: ${bannerStatus}</div>`;
+                html += `<div class="consent-item">Status: ${checkedStatus}</div>`;
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
+
+        // Cookie list (fallback) - Clean list format
         if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
-            lines.push('\nCookies:');
+            html += '<div class="simple-cookie-list">';
+            html += '<div class="list-header">🍪 Cookies</div>';
+            html += '<div class="cookie-items">';
+
             data.cookies.forEach((cookie, index) => {
-                lines.push(`  ${index + 1}. ${cookie}`);
+                html += `<div class="cookie-item"><span class="item-number">${index + 1}.</span> <code>${cookie}</code></div>`;
             });
+
+            html += '</div></div>';
         }
-        
-        // Full cookie headers
+
+        // Full cookie headers - Clean format
         if (data.full_cookies && Array.isArray(data.full_cookies)) {
-            lines.push('\nFull Cookie Headers:');
+            html += '<div class="cookie-headers-section">';
+            html += '<div class="headers-title">📜 Full Cookie Headers</div>';
+            html += '<div class="header-items">';
+
             data.full_cookies.forEach((cookie, index) => {
-                lines.push(`  ${index + 1}. ${cookie}`);
+                html += `<div class="header-item">`;
+                html += `<span class="header-number">${index + 1}.</span>`;
+                html += `<code class="header-content">${cookie}</code>`;
+                html += `</div>`;
             });
+
+            html += '</div></div>';
         }
-        
-        return lines.join('\n');
+
+        return html || '<div class="cookie-empty">🍪 No cookie data available</div>';
     }
 
     // Format URL Change events
@@ -810,7 +961,7 @@ class EventFormatter {
         const lines = [];
         const keyLabelMap = {
             from_url: 'From',
-            previous_url: 'From', 
+            previous_url: 'From',
             to_url: 'To',
             url: 'To',
             title: 'Title',
@@ -823,9 +974,9 @@ class EventFormatter {
             frame_id: 'Frame ID',
             page_load_id: 'Page Load ID'
         };
-        
+
         const printedLabels = new Set();
-        
+
         // Add navigation details
         for (const [key, label] of Object.entries(keyLabelMap)) {
             if (data[key] && !printedLabels.has(label)) {
@@ -833,7 +984,7 @@ class EventFormatter {
                 printedLabels.add(label);
             }
         }
-        
+
         // Add query parameters
         const currentUrl = data.to_url || data.url;
         if (currentUrl) {
@@ -851,7 +1002,7 @@ class EventFormatter {
                 // Invalid URL, skip parameter parsing
             }
         }
-        
+
         return lines.join('\n');
     }
 
@@ -859,6 +1010,7 @@ class EventFormatter {
     static formatResponseInfo(data, isError = false) {
         const lines = [];
         const responseFields = [
+            { key: 'request_method', label: 'Request Method' },
             { key: 'response_type', label: 'Response Type' },
             { key: 'response_size', label: 'Response Size' },
             { key: 'content_type', label: 'Content Type' },
@@ -866,13 +1018,13 @@ class EventFormatter {
             { key: 'cache_control', label: 'Cache Control' },
             { key: 'etag', label: 'ETag' }
         ];
-        
+
         for (const field of responseFields) {
             if (data[field.key]) {
                 lines.push(`${field.label}: ${data[field.key]}`);
             }
         }
-        
+
         return lines.join('\n');
     }
 }
@@ -908,23 +1060,23 @@ function formatUrlChangeDetails(data) {
 
 function getMarketingPixelSummary(data, event) {
     const platform = data.platform || 'Unknown';
+    const platformClass = getPlatformHighlightClass(data.platform);
 
     // Fallback to manual formatting
     let pixelId = '';
     if (data.pixel_id) {
-        const platformClass = getPlatformHighlightClass(data.platform);
         pixelId = ` <span class="pixel-id universal-highlight ${platformClass}">${data.pixel_id}</span>`;
     }
 
     const gcs = data.gcs ? ` <span class="gcs-param">GCS: ${data.gcs}</span>` : '';
-    
+
     // Add Extra Info if available
     let extraInfo = '';
     if (data.extra_info && Array.isArray(data.extra_info) && data.extra_info.length > 0) {
         const extraInfoText = data.extra_info.join(', ');
         extraInfo = ` <span class="extra-info">(${extraInfoText})</span>`;
     }
-    
+
     // Add platform-specific tracking parameters
     let clickIds = '';
     const platformTrackingParamMap = {
@@ -939,7 +1091,7 @@ function getMarketingPixelSummary(data, event) {
         'Twitter/X': ['twclid'],
         'Snapchat': ['scclid']
     };
-    
+
     const platformClickIds = platformTrackingParamMap[platform];
     if (platformClickIds) {
         const foundClickIds = [];
@@ -951,13 +1103,14 @@ function getMarketingPixelSummary(data, event) {
                 foundClickIds.push(`<span class="click-id-missing"><s>${paramName}</s></span>`);
             }
         }
-        
+
         if (foundClickIds.length > 0) {
             clickIds = ` ${foundClickIds.join(' ')}`;
         }
     }
-    
-    return `<span class="platform-name">${platform}</span> <b class="event-name">${event}</b>${pixelId}${gcs}${extraInfo}${clickIds}`;
+
+    const method = data.request_method ? ` <span class="method-badge">${data.request_method}</span>` : '';
+    return `<span class="platform-name universal-highlight ${platformClass}">${platform}</span> <b class="event-name">event: ${event}</b>${pixelId}${gcs}${extraInfo}${clickIds}${method}`;
 }
 
 // ===== SHARED HELPER FUNCTIONS =====
@@ -981,71 +1134,149 @@ const messageHandlers = {
         const actionText = action ? ` - <span class="action">${action}</span>` : '';
         const summary = `<span class="platform-name">Custom Platform</span> <b class="event-name">${event_name}</b>${actionText} (${requestHost}) <code>${requestPath}</code>`;
         const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
-        
+
         // Debug: Check if metadata contains request_url
         if (window.DEBUG_CUSTOM_TRACKING && logEntry.metadata) {
             console.log('Custom tracking metadata:', logEntry.metadata);
             console.log('Request URL in metadata:', logEntry.metadata.request_url);
         }
-        
+
         renderMessage(summary, data.platform, icon, true, false, details);
     },
 
-
-
-    'cookie_banner_detected': (logEntry) => {
-        const { data } = logEntry;
+    'cookie_banner': (logEntry) => {
+        const { event, data } = logEntry;
         const icon = '🍪';
-        const confidence = data.confidence || 0;
-        const reasons = data.reasons || [];
-        const confidenceColor = getConfidenceColor(confidence);
-        const cmpVendor = data.cmp_vendor || 'Unknown CMP';
 
-        const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span> - <span style="color: #007bff; font-weight: bold;">${cmpVendor}</span>`;
+        // Handle different cookie banner events
+        if (event === 'banner_detected') {
+            const confidence = data.confidence || 0;
+            const reasons = data.reasons || [];
+            const confidenceColor = getConfidenceColor(confidence);
+            const cmpVendor = data.cmp_vendor || 'Unknown CMP';
 
-        const elementInfo = data.element_info || {};
-        const position = data.position || {};
-        const styling = data.styling || {};
+            const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span> - <span style="color: #007bff; font-weight: bold;">${cmpVendor}</span>`;
 
-        const details = [
-            'Cookie Banner Analysis:',
-            `CMP Vendor: ${cmpVendor}`,
-            `Confidence: ${confidence}% (${reasons.join(', ')})`,
-            `Detection Method: ${data.detection_method || 'Unknown'}`,
-            `Element: ${elementInfo.tagName || data.tag || 'Unknown'} ${elementInfo.id || data.id ? `#${elementInfo.id || data.id}` : ''} ${elementInfo.className || data.classes ? `.${elementInfo.className || data.classes}` : ''}`,
-            `Position: ${Math.round(position.left || data.bounding_rect?.left || 0)}, ${Math.round(position.top || data.bounding_rect?.top || 0)} (${Math.round(position.width || data.bounding_rect?.width || 0)}×${Math.round(position.height || data.bounding_rect?.height || 0)})`,
-            `Styling: ${styling.position || data.position || 'static'}, z-index: ${styling.zIndex || data.z_index || 'auto'}`,
-            `Text Length: ${elementInfo.textLength || (data.text_preview || '').length || 0} characters`,
-            `Text Snippet: "${data.text_snippet || data.text_preview || 'No text'}"`,
-            `Page URL: ${data.page_url || data.url || 'Unknown'}`,
-            `Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`
-        ].join('\n');
+            const elementInfo = data.element_info || {};
+            const position = data.position || {};
+            const styling = data.styling || {};
 
-        renderMessage(summary, 'cookie_banner', icon, true, false, details);
+            const details = [
+                'Cookie Banner Analysis:',
+                `CMP Vendor: ${cmpVendor}`,
+                `Confidence: ${confidence}% (${reasons.join(', ')})`,
+                `Detection Method: ${data.detection_method || 'Unknown'}`,
+                `Element: ${elementInfo.tagName || data.tag || 'Unknown'} ${elementInfo.id || data.id ? `#${elementInfo.id || data.id}` : ''} ${elementInfo.className || data.classes ? `.${elementInfo.className || data.classes}` : ''}`,
+                `Position: ${Math.round(position.left || data.bounding_rect?.left || 0)}, ${Math.round(position.top || data.bounding_rect?.top || 0)} (${Math.round(position.width || data.bounding_rect?.width || 0)}×${Math.round(position.height || data.bounding_rect?.height || 0)})`,
+                `Styling: ${styling.position || data.position || 'static'}, z-index: ${styling.zIndex || data.z_index || 'auto'}`,
+                `Text Length: ${elementInfo.textLength || (data.text_preview || '').length || 0} characters`,
+                `Text Snippet: "${data.text_snippet || data.text_preview || 'No text'}"`,
+                `Page URL: ${data.page_url || data.url || 'Unknown'}`,
+                `Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`
+            ].join('\n');
+
+            renderMessage(summary, 'cookie_banner', icon, true, false, details);
+
+        } else if (event === 'pre_banner_cookie_summary') {
+            const totalCookies = data.total_cookies || 0;
+            const marketingCount = data.marketing_cookies_count || 0;
+            const nonMarketingCount = data.non_marketing_cookies_count || 0;
+
+            // Create color-coded summary
+            const marketingColor = marketingCount > 0 ? '#ef4444' : '#22c55e'; // red if marketing cookies, green if none
+            const summary = `<b>Pre-Banner Cookie Summary</b> - <span style="color: ${marketingColor}; font-weight: bold;">${totalCookies} total cookies</span> (<span style="color: #ef4444;">${marketingCount} marketing</span>, <span style="color: #3b82f6;">${nonMarketingCount} non-marketing</span>)`;
+
+            // Build detailed cookie list
+            const details = [
+                'Pre-Banner Cookie Analysis:',
+                `Total Cookies Found: ${totalCookies}`,
+                `Marketing Cookies: ${marketingCount}`,
+                `Non-Marketing Cookies: ${nonMarketingCount}`,
+                ''
+            ];
+
+            // Add marketing cookies section
+            if (data.marketing_cookies && data.marketing_cookies.length > 0) {
+                details.push('🚨 Marketing Cookies (Potential GDPR Violation):');
+                data.marketing_cookies.forEach(cookie => {
+                    const riskIndicator = cookie.banner_visible ? ' ⚠️ [BANNER VISIBLE]' : '';
+                    const action = cookie.action || 'unknown';
+                    details.push(`  • ${cookie.name} (${action})${riskIndicator}`);
+                    if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
+                    if (cookie.path) details.push(`    Path: ${cookie.path}`);
+                });
+                details.push('');
+            }
+
+            // Add non-marketing cookies section
+            if (data.non_marketing_cookies && data.non_marketing_cookies.length > 0) {
+                details.push('✅ Non-Marketing Cookies:');
+                data.non_marketing_cookies.forEach(cookie => {
+                    const action = cookie.action || 'unknown';
+                    details.push(`  • ${cookie.name} (${action})`);
+                    if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
+                    if (cookie.path) details.push(`    Path: ${cookie.path}`);
+                });
+                details.push('');
+            }
+
+            // Add compliance warning if marketing cookies found
+            if (marketingCount > 0) {
+                details.push('⚠️  COMPLIANCE WARNING:');
+                details.push('Marketing cookies were set before the consent banner appeared.');
+                details.push('This may constitute a GDPR violation if user consent was not obtained.');
+                details.push('');
+            }
+
+            // Add full cookie details if available
+            if (data.all_cookies && data.all_cookies.length > 0) {
+                details.push('📋 Complete Cookie Details:');
+                data.all_cookies.forEach((cookie, index) => {
+                    details.push(`${index + 1}. ${cookie.name}`);
+                    details.push(`   Action: ${cookie.action || 'unknown'}`);
+                    details.push(`   Type: ${cookie.type || 'unknown'}`);
+                    details.push(`   Source: ${cookie.source || 'unknown'}`);
+                    if (cookie.domain) details.push(`   Domain: ${cookie.domain}`);
+                    if (cookie.path) details.push(`   Path: ${cookie.path}`);
+                    if (cookie.is_marketing !== undefined) details.push(`   Marketing: ${cookie.is_marketing ? 'Yes' : 'No'}`);
+                    if (cookie.banner_visible !== undefined) details.push(`   Banner Visible: ${cookie.banner_visible ? 'Yes' : 'No'}`);
+                    if (cookie.timestamp) details.push(`   Timestamp: ${new Date(cookie.timestamp * 1000).toLocaleString()}`);
+                    details.push('');
+                });
+            }
+
+            renderMessage(summary, 'cookie_banner', icon, true, false, details.join('\n'));
+
+        } else {
+            // Generic cookie banner event handler
+            const summary = `Cookie Banner: ${event}`;
+            const details = prettyPrintDetailsFlat(data, logEntry.metadata, false);
+            renderMessage(summary, 'cookie_banner', icon, false, false, details);
+        }
     },
 
     'spa_pageview': (logEntry) => {
         const { event, data } = logEntry;
         const icon = '🌐';
-        
+
         const navigationTypes = {
             'pushState': '➡️ Push State',
-            'replaceState': '🔄 Replace State', 
+            'replaceState': '🔄 Replace State',
             'popstate': '⬅️ Back/Forward',
             'hashchange': '#️⃣ Hash Change',
             'path_change': '📍 Path Change',
             'url_change': '🔗 URL Change'
         };
-        
-        const navigationIcon = data.navigation_type === 'popstate' ? '⬅️' : 
-                             data.navigation_type === 'hashchange' ? '#️⃣' : '➡️';
-        
+
+        const navigationIcon = data.navigation_type === 'popstate' ? '⬅️' :
+            data.navigation_type === 'hashchange' ? '#️⃣' : '➡️';
+
         const navTypeDisplay = navigationTypes[data.navigation_type] || data.navigation_type;
-        
+
         // Extract meaningful URL parts for display
         const fromUrl = data.from_url || data.previous_page || 'Unknown';
         const toUrl = data.to_url || data.page_location || data.url || 'Unknown';
-        
+
         // Create shortened URLs for display (show path + hash)
         const getDisplayUrl = (url) => {
             if (!url || url === 'Unknown' || url === 'None') return url;
@@ -1056,12 +1287,12 @@ const messageHandlers = {
                 return url.length > 50 ? url.substring(0, 47) + '...' : url;
             }
         };
-        
+
         const fromDisplay = getDisplayUrl(fromUrl);
         const toDisplay = getDisplayUrl(toUrl);
-        
+
         const summary = `${navigationIcon} <b>SPA Navigation</b> - ${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
-        
+
         const details = [
             'SPA Page View:',
             `Navigation Type: ${data.navigation_type}`,
@@ -1082,15 +1313,11 @@ const messageHandlers = {
         renderMessage(summary, 'spa_navigation', icon, true, true, details, 'url-change-separator');
     },
 
-
-
-
-
     'marketing_pixel_event': (logEntry) => {
         const { event, data } = logEntry;
         const icon = getPlatformIcon(data.platform);
         const summary = getMarketingPixelSummary(data, event);
-        
+
         // Debug logging for sGTM events
         if (data.platform === 'sGTM' || data.platform === 'Server-side GTM') {
             console.log('sGTM event detected:', {
@@ -1100,7 +1327,7 @@ const messageHandlers = {
                 hasRawData: !!(logEntry.metadata && logEntry.metadata.raw_data)
             });
         }
-        
+
         const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
         renderMessage(summary, data.platform, icon, true, false, details);
     },
@@ -1129,34 +1356,10 @@ const messageHandlers = {
 
     'datalayer': (logEntry) => {
         const { event, data } = logEntry;
-
-        console.log('📋 Processing DataLayer event:', event, 'with data:', data);
-
-        // Check for consent updates in DataLayer events
-        if (event === 'consent_update') {
-            // Try multiple data structure possibilities
-            let consentData = data.data_layer_data || data || null;
-            console.log('📋 Checking consent data structure:', consentData);
-
-            if (consentData) {
-                checkConsentInDataLayer(consentData);
-            }
-        }
-
-        // Also check any data with consent-related keys regardless of event name
-        const dataToCheck = data.data_layer_data || data;
-        if (dataToCheck && typeof dataToCheck === 'object') {
-            const hasConsentKeys = Object.keys(dataToCheck).some(key =>
-                key.includes('storage') || key.includes('consent') || key.includes('ad_') || key.includes('analytics_')
-            );
-            if (hasConsentKeys) {
-                console.log('📋 Found consent-related keys in any DataLayer event, checking:', dataToCheck);
-                checkConsentInDataLayer(dataToCheck);
-            }
-        }
-
         const icon = CONFIG.typeIconMap.datalayer;
-        const summary = `DataLayer <b>${event}</b>`;
+        // event unknown
+        const summary = event === 'unknown' ? 'DataLayer Object - expand for details' : `DataLayer Event: <b>${event}</b>`;;
+  
         const details = formatDataLayerAsJSON(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
         renderMessage(summary, 'DataLayer', icon, false, false, details);
     },
@@ -1165,50 +1368,11 @@ const messageHandlers = {
         const { event, data } = logEntry;
         const icon = CONFIG.typeIconMap.consent || '🛡️';
 
-        if (event === 'user_consent_declined') {
-            consentStatus.status = 'declined';
-            consentStatus.timestamp = new Date().toLocaleTimeString();
-            consentStatus.categories = data.categories || {};
-            updateConsentStatusHeader();
+        // Handle other consent events
+        const summary = `Consent <b>${event}</b>`;
+        const details = JSON.stringify(data, null, 2);
+        renderMessage(summary, 'consent', icon, false, false, details);
 
-            const summary = `<span style="color: #dc2626; font-weight: bold;">🚫 USER CONSENT DECLINED</span>`;
-            const details = [
-                'Consent Status: DECLINED',
-                `All Categories Denied: ${data.all_categories_denied ? 'Yes' : 'No'}`,
-                `Categories: ${Object.keys(data.categories || {}).join(', ')}`,
-                `Timestamp: ${consentStatus.timestamp}`,
-                '',
-                'Full Data:',
-                JSON.stringify(data, null, 2)
-            ].join('\n');
-            renderMessage(summary, 'consent', icon, true, false, details);
-
-        } else if (event === 'user_consent_given' || event === 'user_consent_accepted') {
-            consentStatus.status = 'accepted';
-            consentStatus.timestamp = new Date().toLocaleTimeString();
-            consentStatus.buttonText = data.button_text || null;
-            updateConsentStatusHeader();
-
-            const summary = `<span style="color: #15803d; font-weight: bold;">✅ USER CONSENT ${event === 'user_consent_given' ? 'GIVEN' : 'ACCEPTED'}</span>`;
-            const details = [
-                'Consent Status: ACCEPTED',
-                `Consent Type: ${data.consent_type || 'Unknown'}`,
-                `Button Text: "${data.button_text || 'Unknown'}"`,
-                `Granted Categories: ${(data.granted_categories || []).join(', ') || 'None specified'}`,
-                `Denied Categories: ${(data.denied_categories || []).join(', ') || 'None specified'}`,
-                `Timestamp: ${consentStatus.timestamp}`,
-                '',
-                'Full Data:',
-                JSON.stringify(data, null, 2)
-            ].join('\n');
-            renderMessage(summary, 'consent', icon, true, false, details);
-
-        } else {
-            // Handle other consent events
-            const summary = `Consent <b>${event}</b>`;
-            const details = JSON.stringify(data, null, 2);
-            renderMessage(summary, 'consent', icon, false, false, details);
-        }
     },
 
     'cookie': (logEntry) => {
@@ -1233,11 +1397,11 @@ const messageHandlers = {
 
         // Use standardized action field, with fallback to event
         const cookieAction = data.action || event || 'set';
-        
+
         // Create action-aware summary
         let actionText = cookieAction.replace(/^cookie_/i, '').replace(/_/g, ' ');
         actionText = actionText.charAt(0).toUpperCase() + actionText.slice(1);
-        
+
         // Use standardized cookie name handling
         let cookieNames;
         if (data.cookies && Array.isArray(data.cookies) && data.cookies.length > 0) {
@@ -1247,9 +1411,9 @@ const messageHandlers = {
         } else {
             cookieNames = 'Unknown';
         }
-        
+
         const summary = `Cookie <b>${actionText}</b> (${cookieSource}): ${cookieNames}`;
-        
+
         const details = formatCookieDetails(data, logEntry.metadata);
         renderMessage(summary, messageType, icon, false, false, details);
     },
@@ -1275,98 +1439,8 @@ const messageHandlers = {
 
     'request_status_update': (logEntry) => {
         updateRequestStatus(logEntry.data);
-    },
-
-    'violation': (logEntry) => {
-        const { event, data } = logEntry;
-        const icon = '⚠️';
-        
-        if (event === 'marketing_cookies_preloaded') {
-            const cookieCount = data.cookie_count || 0;
-            const severity = data.severity || 'MEDIUM';
-            const severityColor = severity === 'HIGH' ? '#F44336' : severity === 'MEDIUM' ? '#FF9800' : '#FFC107';
-            
-            const summary = `<b style="color: ${severityColor};">GDPR Violation Risk</b> - ${cookieCount} marketing cookie(s) already set before banner`;
-            
-            const cookieList = data.marketing_cookies ? 
-                data.marketing_cookies.map(cookie => `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}`).join('\n') : 
-                'No cookie details available';
-            
-            const details = [
-                `Violation Type: ${data.violation_type || 'marketing_cookies_before_banner'}`,
-                `Severity: ${severity}`,
-                `Compliance Risk: ${data.compliance_risk || 'GDPR_PRELOAD_VIOLATION'}`,
-                `Domain: ${data.domain || 'Unknown'}`,
-                `Cookie Count: ${cookieCount}`,
-                '',
-                'Marketing Cookies Found:',
-                cookieList,
-                '',
-                `Message: ${data.message || 'Marketing cookies detected before consent banner appeared'}`,
-                `URL: ${data.url || 'Unknown'}`
-            ].join('\n');
-            
-            renderMessage(summary, 'violation', icon, true, false, details);
-        } else if (event === 'marketing_cookie_while_banner_visible') {
-            const severity = data.severity || 'HIGH';
-            const severityColor = severity === 'HIGH' ? '#F44336' : '#FF9800';
-            const violatingCookie = data.violating_cookie_name || data.cookie_name || 'Unknown Cookie';
-            const action = data.action || 'set';
-            const totalMarketing = data.total_marketing_cookies || 0;
-            const totalOther = data.total_other_cookies || 0;
-            
-            const summary = `<b style="color: ${severityColor};">GDPR Violation</b> - Marketing cookie '${violatingCookie}' ${action} while banner visible (${totalMarketing} total marketing cookies)`;
-            
-            // Build comprehensive cookie lists
-            let marketingCookiesList = 'No marketing cookies data available';
-            if (data.all_marketing_cookies && data.all_marketing_cookies.length > 0) {
-                marketingCookiesList = data.all_marketing_cookies.map(cookie => {
-                    const violatingMarker = cookie.is_violating_cookie ? ' ⚠️ [VIOLATING]' : '';
-                    return `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}${violatingMarker}`;
-                }).join('\n');
-            }
-            
-            let otherCookiesList = 'No other cookies';
-            if (data.all_other_cookies && data.all_other_cookies.length > 0) {
-                otherCookiesList = data.all_other_cookies.slice(0, 10).map(cookie => 
-                    `• ${cookie.name}${cookie.value ? ` = ${cookie.value}` : ''}`
-                ).join('\n');
-                if (data.all_other_cookies.length > 10) {
-                    otherCookiesList += `\n... and ${data.all_other_cookies.length - 10} more`;
-                }
-            }
-            
-            const details = [
-                `Violation Type: ${data.violation_type || 'marketing_cookie_while_banner_visible'}`,
-                `Violating Cookie: ${violatingCookie}`,
-                `Violating Cookie Value: ${data.violating_cookie_value || data.cookie_value || 'N/A'}`,
-                `Action: ${action}`,
-                `Severity: ${severity}`,
-                `Compliance Risk: ${data.compliance_risk || 'GDPR_VIOLATION_RISK'}`,
-                `Domain: ${data.domain || 'Unknown'}`,
-                '',
-                `Cookie Context:`,
-                `Total Marketing Cookies: ${totalMarketing}`,
-                `Total Other Cookies: ${totalOther}`,
-                '',
-                'All Marketing Cookies:',
-                marketingCookiesList,
-                '',
-                'Other Cookies (sample):',
-                otherCookiesList,
-                '',
-                `Message: ${data.message || 'Marketing cookie set while consent banner visible without proper consent'}`,
-                `URL: ${data.url || 'Unknown'}`
-            ].join('\n');
-            
-            renderMessage(summary, 'violation', icon, true, false, details);
-        } else {
-            // Generic violation handler
-            const summary = `<b style="color: #F44336;">Compliance Violation</b> - ${event}`;
-            const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
-            renderMessage(summary, 'violation', icon, true, false, details);
-        }
     }
+
 };
 
 function handleStructuredLog(logEntry) {
@@ -1401,8 +1475,6 @@ function hasResponseInfo(data) {
 function hasStatusIcon(messageText) {
     return messageText.includes('✅') || messageText.includes('❌');
 }
-
-
 
 function findMessageByHash(messages, hash) {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -1444,7 +1516,7 @@ function findTargetMessage(messages, data) {
         const hashMatch = findMessageByHash(messages, data.request_hash);
         if (hashMatch) return hashMatch;
     }
-    
+
     // Fallback to platform-based matching
     return findMessageByPlatform(messages, data.platform);
 }
@@ -1457,6 +1529,29 @@ function updateRequestStatus(data) {
 
     const messageTextEl = targetMessage.querySelector('.message-text');
     const detailsEl = targetMessage.querySelector('.message-details');
+    // set type of message to request_status_update
+  
+
+
+    // Handle JavaScript endpoint platform correction
+    if (data.javascript_endpoint && data.platform) {
+        targetMessage.setAttribute('data-type', 'javascript_endpoint');
+
+        // Update the platform in the message
+        const platformElement = targetMessage.querySelector('.platform-name');
+
+        if (platformElement) {
+            platformElement.textContent = "Javascript Library"
+            platformElement.className = `platform-name universal-highlight universal-highlight-${data.platform.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+        }
+
+        // Update the event name if it's a generic one
+        const eventElement = targetMessage.querySelector('.event-name');
+        if (eventElement && (eventElement.textContent.includes('not defined') || eventElement.textContent.includes('Custom Platform'))) {
+            const description = data.js_description || 'JavaScript Endpoint';
+            eventElement.textContent = `event: ${description}`;
+        }
+    }
 
     if (!data.success) {
         // Handle failed requests
@@ -1466,29 +1561,44 @@ function updateRequestStatus(data) {
             if (detailsEl) {
                 let statusInfo = `\n\n--- Request Failed ---\nStatus: ${data.status_code || 'Unknown'}`;
                 if (data.method) statusInfo += `\nMethod: ${data.method}`;
-                
+                if (data.request_method) statusInfo += `\nRequest Method: ${data.request_method}`;
+
                 const requestUrl = data.request_url || data.url;
                 if (requestUrl) statusInfo += `\nRequest URL:\n${requestUrl}`;
-                
+
                 if (data.error_details) statusInfo += `\nError: ${data.error_details}`;
                 if (data.response_status) statusInfo += `\nResponse Status: ${data.response_status}`;
-                
+
                 statusInfo += EventFormatter.formatResponseInfo(data, true);
-                
+
                 if (window.DEBUG_RESPONSE_STATUS) {
                     console.log('Request status data:', data);
                 }
-                
+
                 detailsEl.textContent += statusInfo;
             }
         }
     } else if (hasResponseInfo(data)) {
         // Handle successful requests with response info
         if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
-            let responseInfo = `\n\n--- Response Info ---\nStatus: ${data.status_code} (Success)`;
+            let responseInfo = `\n\n--- Response Info   ---\nStatus: ${data.status_code} (Success)`;
+
+            // Add JavaScript-specific information if this is a JS endpoint
+            if (data.javascript_endpoint) {
+                responseInfo += `\nJavaScript Endpoint: ${data.js_description || 'JavaScript Library'}`;
+                if (data.response_content) {
+                    responseInfo += `\nJavaScript Content:\n\`\`\`javascript\n${data.response_content}\n\`\`\``;
+                }
+            }
+
             responseInfo += EventFormatter.formatResponseInfo(data, false);
             detailsEl.textContent += responseInfo;
         }
+    }
+    
+    // Re-apply filter after updating the message type
+    if (data.javascript_endpoint) {
+        applyFilter();
     }
 }
 
@@ -1525,8 +1635,19 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
     const weightClass = isBold ? 'font-weight: 600;' : '';
     const pageClass = isNewPage ? 'page-separator' : '';
 
-    // Add timestamp to details
-    const detailsWithTimestamp = details ? `Timestamp: ${timestampWithMillis}\n\n${details}` : `Timestamp: ${timestampWithMillis}`;
+    // Add timestamp to details - support HTML content
+    let detailsWithTimestamp;
+    if (details) {
+        // Check if details contains HTML (has < and > characters)
+        const isHtml = details.includes('<') && details.includes('>');
+        if (isHtml) {
+            detailsWithTimestamp = `<div class="timestamp-header">Timestamp: ${timestampWithMillis}</div><div class="details-content">${details}</div>`;
+        } else {
+            detailsWithTimestamp = `Timestamp: ${timestampWithMillis}\n\n${details}`;
+        }
+    } else {
+        detailsWithTimestamp = `Timestamp: ${timestampWithMillis}`;
+    }
 
     msg.innerHTML = `
         <div class="message-content">
@@ -1569,8 +1690,19 @@ function renderMessageWithPriority(message, messageType, icon, isBold, isNewPage
     const weightClass = isBold ? 'font-weight: 600;' : '';
     const pageClass = isNewPage ? 'page-separator' : '';
 
-    // Add timestamp to details
-    const detailsWithTimestamp = details ? `Timestamp: ${timestampWithMillis}\n\n${details}` : `Timestamp: ${timestampWithMillis}`;
+    // Add timestamp to details - support HTML content
+    let detailsWithTimestamp;
+    if (details) {
+        // Check if details contains HTML (has < and > characters)
+        const isHtml = details.includes('<') && details.includes('>');
+        if (isHtml) {
+            detailsWithTimestamp = `<div class="timestamp-header">Timestamp: ${timestampWithMillis}</div><div class="details-content">${details}</div>`;
+        } else {
+            detailsWithTimestamp = `Timestamp: ${timestampWithMillis}\n\n${details}`;
+        }
+    } else {
+        detailsWithTimestamp = `Timestamp: ${timestampWithMillis}`;
+    }
 
     msg.innerHTML = `
         <div class="message-content">
@@ -1685,7 +1817,7 @@ function initializeSettings() {
 
     toggleMappings.forEach(({ element, setting }) => {
         if (element) {
-            settings[setting] = element.checked;
+            element.checked = settings[setting];
         }
     });
 }
@@ -1745,7 +1877,7 @@ function checkMessageVisibility(messageType, messageText = '') {
         'ClientCookie': settings.showClientCookies,
         'DataLayer': settings.showDataLayer,
         'Info': settings.showInfo,
-        'javascript_endpoint': settings.showJavaScriptEndpoints
+        'javascript_endpoint': settings.showJavaScriptEndpoints,
     };
 
     // Normalize 'info' to 'Info' for the lookup to fix case-sensitivity bug
@@ -1818,11 +1950,6 @@ function addMessage(message, type = 'info') {
     const emptyState = DOM.content.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
 
-    // Debug: Log all incoming messages to see if we're missing consent events
-    if (typeof message === 'string' && (message.includes('consent') || message.includes('storage'))) {
-        console.log('🔍 Consent-related message detected:', message);
-    }
-
     if (message.startsWith('[STRUCTURED] ')) {
         try {
             const logEntry = JSON.parse(message.substring(13));
@@ -1830,18 +1957,12 @@ function addMessage(message, type = 'info') {
 
             if (logEntry.type && logEntry.event && logEntry.data) {
                 // Check for consent_update events specifically
-                if (logEntry.type === 'datalayer' && logEntry.event === 'consent_update') {
-                    console.log('🎯 Found consent_update event, processing...');
-                    console.log('🎯 Raw data structure:', logEntry.data);
+                if (logEntry.type === 'consent' && logEntry.event === 'consent_update') {
                     const consentData = logEntry.data.data_layer_data || logEntry.data;
                     console.log('🎯 Extracted consent data:', consentData);
                     checkConsentInDataLayer(consentData);
                 }
 
-                // Also check any consent-type events
-                if (logEntry.type === 'consent') {
-                    console.log('🎯 Found consent event type, processing...');
-                }
 
                 handleStructuredLog(logEntry);
                 return;
@@ -2026,7 +2147,9 @@ async function init() {
     setupInteractionTracking(); // Add interaction tracking
     updateNavigationButtons();
     applyFilter(); // Apply default filter settings
+
     updateConsentStatusHeader(); // Initialize consent status header
+
     connect();
 }
 

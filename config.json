@@ -72,7 +72,7 @@
     "GA4": {
       "name": "GA4",
       "hosts": ["www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "region1.google-analytics.com","region1.analytics.google.com", "www.google.com"],
-      "paths": ["/g/collect", "/g/s/collect", "/collect", "/r/collect", "/gtag/js", "/mp/collect"],
+      "paths": ["/g/collect", "/g/s/collect", "/collect", "/r/collect", "/gtag/js", "/mp/collect", "/td"],
       "paramMap": {
         "tid": "tracking_id",
         "cid": "client_id",
@@ -464,15 +464,37 @@
     },
     "Taboola": {
       "name": "Taboola",
-      "hosts": ["trc.taboola.com", "cdn.taboola.com"],
-      "paths": ["/actions/", "/libtrc/"],
+      "hosts": ["trc.taboola.com", "cdn.taboola.com", "trc-events.taboola.com"],
+      "paths": ["/actions/", "/libtrc/", "/trc/", "/json", "/trc/", "trc/"],
       "paramMap": {
         "pixel_id": "pixel_id",
         "event": "event_name",
         "value": "value",
         "currency": "currency",
         "url": "page_url",
-        "ref": "referrer"
+        "ref": "referrer",
+        "tim": "timestamp",
+        "data": "tracking_data",
+        "pubit": "publisher_id",
+        "u": "page_url",
+        "r": "referrer_data",
+        "e": "event_data",
+        "cb": "callback",
+        "id": "placement_id",
+        "cbp": "consent_management_platform",
+        "cbpv": "consent_platform_version",
+        "cbcd": "consent_data",
+        "cv": "client_version",
+        "uiv": "user_interface_version",
+        "vi": "visitor_id",
+        "ii": "item_id",
+        "it": "item_type",
+        "sd": "session_data",
+        "ui": "user_id",
+        "qs": "query_string",
+        "mpvd": "media_pixel_view_data",
+        "pa": "page_attributes",
+        "psb": "privacy_sandbox"
       },
       "pixelIdKey": "pixel_id",
       "eventNameKey": "event",
@@ -760,6 +782,33 @@
         "icon": "☁️",
         "color": "#F38020",
         "highlightClass": "universal-highlight-zaraz"
+      }
+    },
+    "Mapp": {
+      "name": "Mapp",
+      "hosts": ["track.webtrekk.net", "webtrekk.net", "tracking.mapp.com", "mapp.com"],
+      "paths": ["/wt", "/track", "/analytics", "/collect"],
+      "paramMap": {
+        "p": "tracking_data",
+        "wt_eid": "ever_id",
+        "wt_t": "timestamp",
+        "tid": "track_id",
+        "event": "event_name",
+        "url": "page_url",
+        "ref": "referrer",
+        "action": "action_name",
+        "goal": "goal_value",
+        "orderId": "order_id",
+        "value": "value",
+        "currency": "currency"
+      },
+      "pixelIdKey": "tid",
+      "eventNameKey": "event",
+      "description": "Mapp Intelligence (formerly Webtrekk) - Web analytics and marketing intelligence platform.",
+      "ui": {
+        "icon": "<i class=\"fa-solid fa-chart-mixed brand-icon icon-mapp\"></i>",
+        "color": "#0066CC",
+        "highlightClass": "universal-highlight-mapp"
       }
     },
     "Custom Tracking": {
