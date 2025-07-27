@@ -208,6 +208,15 @@ function truncateValue(value, maxLength = CONFIG.TRUNCATE_LENGTH) {
 function isElementTrulyVisible(element) {
     if (!element) return false;
 
+    // Usercentrics: Check Shadow DOM content if available, otherwise just DOM presence
+    if (element.id === 'usercentrics-root') {
+        if (element.shadowRoot) {
+            const container = element.shadowRoot.querySelector('#uc-center-container');
+            return container ? container.getBoundingClientRect().width > 0 : false;
+        }
+        return element.isConnected; // Present in DOM is enough
+    }
+
     // Check basic dimensions
     if (element.offsetWidth === 0 || element.offsetHeight === 0) return false;
 
@@ -242,7 +251,15 @@ function isElementTrulyVisible(element) {
  * @returns {boolean} True if element is a valid banner
  */
 function isValidBannerElement(element) {
-    if (!element || element.offsetWidth === 0 || element.offsetHeight === 0) return false;
+    if (!element) return false;
+
+    // Fast path for Usercentrics - accept if present in DOM (ignore size checks)
+    if (element.id === 'usercentrics-root') {
+        return true;
+    }
+
+    // Standard size check for other elements
+    if (element.offsetWidth === 0 || element.offsetHeight === 0) return false;
 
     const rect = element.getBoundingClientRect();
     const text = element.textContent || '';
@@ -610,11 +627,31 @@ const CookieBannerMonitor = {
         let foundBanner = null;
         let detectionMethod = '';
 
+        // Debug: Check specifically for Usercentrics
+        const ucRoot = document.querySelector('#usercentrics-root');
+        if (ucRoot) {
+            console.log('Usercentrics root found:', {
+                element: ucRoot,
+                offsetWidth: ucRoot.offsetWidth,
+                offsetHeight: ucRoot.offsetHeight,
+                shadowRoot: !!ucRoot.shadowRoot,
+                isConnected: ucRoot.isConnected
+            });
+        }
+
         // Method 1: Check for elements with cookie-related selectors
         for (const selector of CONFIG.BANNER_SELECTORS) {
             try {
                 const elements = document.querySelectorAll(selector);
                 for (const element of elements) {
+                    if (selector === '#usercentrics-root') {
+                        console.log('Checking usercentrics-root validation:', {
+                            element: element,
+                            offsetWidth: element.offsetWidth,
+                            offsetHeight: element.offsetHeight,
+                            validation: isValidBannerElement(element)
+                        });
+                    }
                     if (isValidBannerElement(element)) {
                         foundBanner = element;
                         detectionMethod = `selector: ${selector}`;
@@ -626,8 +663,6 @@ const CookieBannerMonitor = {
                 // Skip invalid selectors silently
             }
         }
-
-
 
         // Method 2: Text-based detection (fallback)
         if (!foundBanner) {
@@ -641,8 +676,20 @@ const CookieBannerMonitor = {
             }
         }
 
-        if (foundBanner && isElementTrulyVisible(foundBanner)) {
-            this.registerBannerDetection(foundBanner, detectionMethod);
+        console.log('foundBanner', foundBanner);
+        if (foundBanner) {
+            const isVisible = isElementTrulyVisible(foundBanner);
+            console.log('Banner visibility check:', {
+                element: foundBanner,
+                id: foundBanner.id,
+                isVisible: isVisible,
+                detectionMethod: detectionMethod,
+                hasShadowRoot: !!foundBanner.shadowRoot
+            });
+            
+            if (isVisible) {
+                this.registerBannerDetection(foundBanner, detectionMethod);
+            }
         }
     },
 
