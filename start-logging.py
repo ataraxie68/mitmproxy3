@@ -794,37 +794,32 @@ def run_browser_with_proxy():
                 # Cookie Banner Events
                 elif text.startswith('[COOKIE_BANNER_DETECTED]'):
                     banner_data = json.loads(text.replace('[COOKIE_BANNER_DETECTED] ', ''))
-                    structured_log = create_structured_log(
-                        "cookie_banner", "banner_detected",
-                        {
-                            "banner_element": {
-                                "tag": banner_data.get('tag'),
-                                "id": banner_data.get('id'),
-                                "classes": banner_data.get('classes'),
-                                "position": banner_data.get('position'),
-                                "z_index": banner_data.get('z_index')
-                            },
-                            "text_preview": banner_data.get('text_preview'),
-                            "detection_method": banner_data.get('detection_method'),
-                            "bounding_rect": banner_data.get('bounding_rect'),
-                            "visible": banner_data.get('visible'),
-                            "url": banner_data.get('url'),
-                            "cmp_vendor": banner_data.get('cmp_vendor')
-                        },
-                        {
-                            "source": "cookie_banner_detector",
-                            "timestamp": banner_data.get('timestamp')
-                        }
-                    )
-                    output_queue.put(structured_log)
                     
-                    # Extract and log cookies found before banner detection
+                    # Extract cookies found before banner detection
                     cookies_found = extract_cookies_from_buffer()
+                    marketing_cookies = [c for c in cookies_found if c.get('is_marketing', False)]
+                    non_marketing_cookies = [c for c in cookies_found if not c.get('is_marketing', False)]
+                    
+                    # Build combined data for banner_detected event
+                    event_data = {
+                        "banner_element": {
+                            "tag": banner_data.get('tag'),
+                            "id": banner_data.get('id'),
+                            "classes": banner_data.get('classes'),
+                            "position": banner_data.get('position'),
+                            "z_index": banner_data.get('z_index')
+                        },
+                        "text_preview": banner_data.get('text_preview'),
+                        "detection_method": banner_data.get('detection_method'),
+                        "bounding_rect": banner_data.get('bounding_rect'),
+                        "visible": banner_data.get('visible'),
+                        "url": banner_data.get('url'),
+                        "cmp_vendor": banner_data.get('cmp_vendor')
+                    }
+                    
+                    # Add cookie data if cookies were found
                     if cookies_found:
                         print(f"🍪 Cookie Banner Detected - Found {len(cookies_found)} cookies in buffer:", flush=True)
-                        marketing_cookies = [c for c in cookies_found if c.get('is_marketing', False)]
-                        non_marketing_cookies = [c for c in cookies_found if not c.get('is_marketing', False)]
-                        
                         print(f"   📊 Marketing cookies: {len(marketing_cookies)}", flush=True)
                         for cookie in marketing_cookies:
                             print(f"      - {cookie['name']} ({cookie['action']})", flush=True)
@@ -833,25 +828,28 @@ def run_browser_with_proxy():
                         for cookie in non_marketing_cookies:
                             print(f"      - {cookie['name']} ({cookie['action']})", flush=True)
                         
-                        # Create structured log for cookie summary
-                        cookie_summary_log = create_structured_log(
-                            "cookie_banner", "pre_banner_cookie_summary",
-                            {
-                                "total_cookies": len(cookies_found),
-                                "marketing_cookies_count": len(marketing_cookies),
-                                "non_marketing_cookies_count": len(non_marketing_cookies),
-                                "marketing_cookies": marketing_cookies,
-                                "non_marketing_cookies": non_marketing_cookies,
-                                "all_cookies": cookies_found
-                            },
-                            {
-                                "source": "cookie_banner_detector",
-                                "timestamp": banner_data.get('timestamp')
-                            }
-                        )
-                        output_queue.put(cookie_summary_log)
+                        # Add cookie data to the banner_detected event
+                        event_data.update({
+                            "total_cookies": len(cookies_found),
+                            "marketing_cookies_count": len(marketing_cookies),
+                            "non_marketing_cookies_count": len(non_marketing_cookies),
+                            "marketing_cookies": marketing_cookies,
+                            "non_marketing_cookies": non_marketing_cookies,
+                            "all_cookies": cookies_found
+                        })
                     else:
                         print(f"🍪 Cookie Banner Detected - No cookies found in buffer", flush=True)
+                    
+                    # Create single structured log with combined data
+                    structured_log = create_structured_log(
+                        "cookie_banner", "banner_detected",
+                        event_data,
+                        {
+                            "source": "cookie_banner_detector",
+                            "timestamp": banner_data.get('timestamp')
+                        }
+                    )
+                    output_queue.put(structured_log)
                     
                 elif text.startswith('[COOKIE_BANNER_BUTTONS]'):
                     button_data = json.loads(text.replace('[COOKIE_BANNER_BUTTONS] ', ''))
@@ -966,12 +964,84 @@ def run_browser_with_proxy():
             frame = event.get('frame', {})
             if frame.get('parentId') is None:  # Only main frame
                 current_url = frame.get('url', '')
+                
+                # Capture page metadata after navigation
                 extra_data = {
                     "referrer": None,
                     "title": None,
                     "description": None,
                     "frame_id": frame.get('id', 'main_frame')
                 }
+                
+                # Try to capture page metadata
+                try:
+                    # Wait a bit for the page to load
+                 
+                    
+                    # Extract page metadata
+                    page_metadata = site_page.evaluate("""
+                        () => {
+                            const metadata = {};
+                            
+                            // Page title
+                            metadata.title = document.title || '';
+                            
+                            // Meta description
+                            const metaDesc = document.querySelector('meta[name="description"]');
+                            metadata.description = metaDesc ? metaDesc.getAttribute('content') : '';
+                            
+                            // Meta keywords
+                            const metaKeywords = document.querySelector('meta[name="keywords"]');
+                            metadata.keywords = metaKeywords ? metaKeywords.getAttribute('content') : '';
+                            
+                            // Open Graph tags
+                            const ogTitle = document.querySelector('meta[property="og:title"]');
+                            metadata.og_title = ogTitle ? ogTitle.getAttribute('content') : '';
+                            
+                            const ogDesc = document.querySelector('meta[property="og:description"]');
+                            metadata.og_description = ogDesc ? ogDesc.getAttribute('content') : '';
+                            
+                            const ogImage = document.querySelector('meta[property="og:image"]');
+                            metadata.og_image = ogImage ? ogImage.getAttribute('content') : '';
+                            
+                            const ogUrl = document.querySelector('meta[property="og:url"]');
+                            metadata.og_url = ogUrl ? ogUrl.getAttribute('content') : '';
+                            
+                            // Twitter Card tags
+                            const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+                            metadata.twitter_title = twitterTitle ? twitterTitle.getAttribute('content') : '';
+                            
+                            const twitterDesc = document.querySelector('meta[name="twitter:description"]');
+                            metadata.twitter_description = twitterDesc ? twitterDesc.getAttribute('content') : '';
+                            
+                            const twitterImage = document.querySelector('meta[name="twitter:image"]');
+                            metadata.twitter_image = twitterImage ? twitterImage.getAttribute('content') : '';
+                            
+                            // Canonical URL
+                            const canonical = document.querySelector('link[rel="canonical"]');
+                            metadata.canonical_url = canonical ? canonical.getAttribute('href') : '';
+                            
+                            // Language
+                            metadata.language = document.documentElement.lang || '';
+                            
+                            // Viewport
+                            const viewport = document.querySelector('meta[name="viewport"]');
+                            metadata.viewport = viewport ? viewport.getAttribute('content') : '';
+                            
+                            // Robots
+                            const robots = document.querySelector('meta[name="robots"]');
+                            metadata.robots = robots ? robots.getAttribute('content') : '';
+                            
+                            return metadata;
+                        }
+                    """)
+                    
+                    extra_data.update(page_metadata)
+                    
+                except Exception as e:
+                    # If metadata extraction fails, continue without it
+                    pass
+                
                 log_url_change(current_url, "cdp_frame_navigated", "url_change", None, extra_data)
 
 

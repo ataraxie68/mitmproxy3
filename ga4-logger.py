@@ -1019,6 +1019,50 @@ class ConsentManagementPlatformEventHandler(BaseEventHandler):
         return extra_info
 
 
+class MicrosoftClarityEventHandler(BaseEventHandler):
+    """Specialized handler for Microsoft Clarity events"""
+    
+    def extract_identifiers(self, data: Dict[str, str]) -> tuple[str, str, str]:
+        """Extract Clarity-specific identifiers"""
+        # Clarity uses 'id' for project ID and 't' for event type
+        pixel_id = data.get("id", "")
+        event_name = data.get("t", "clarity_event")
+        
+        # If no event type specified, it's likely a session/collect event
+        if not event_name or event_name == "Unknown":
+            event_name = "session_collect"
+        
+        return pixel_id, event_name, "Clarity Event"
+    
+    def extract_platform_info(self, data: Dict[str, str], mapped_data: Dict[str, str], event_name: str = "") -> List[str]:
+        """Extract Clarity-specific information"""
+        extra_info = []
+        
+        # Add session ID if available
+        if session_id := data.get("sid"):
+            extra_info.append(f"session: {session_id[:12]}...")
+        
+        # Add user ID if available
+        if user_id := data.get("uid"):
+            extra_info.append(f"user: {user_id[:12]}...")
+        
+        # Add timestamp if available
+        if timestamp := data.get("ts"):
+            extra_info.append(f"timestamp: {timestamp}")
+        
+        # Add URL if available
+        if url := data.get("url"):
+            domain = url.split("//")[-1].split("/")[0] if "//" in url else url
+            extra_info.append(f"domain: {domain}")
+        
+        # Add referrer if available
+        if referrer := data.get("referrer"):
+            ref_domain = referrer.split("//")[-1].split("/")[0] if "//" in referrer else referrer
+            extra_info.append(f"referrer: {ref_domain}")
+        
+        return extra_info
+
+
 # Event Handler Factory
 EVENT_HANDLERS = {
     "GA4": GA4EventHandler,
@@ -1029,6 +1073,7 @@ EVENT_HANDLERS = {
     "LinkedIn": LinkedInEventHandler,
     "Pinterest": PinterestEventHandler,
     "Microsoft/Bing": MicrosoftBingEventHandler,
+    "Microsoft Clarity": MicrosoftClarityEventHandler,
     "DoubleClick": DoubleClickEventHandler,
     "Taboola": TaboolaEventHandler,
     "Privacy Sandbox": PrivacySandboxEventHandler,

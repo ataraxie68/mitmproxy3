@@ -918,6 +918,7 @@ const CookieBannerMonitor = {
         }
     },
 
+
     /**
      * Get banner visibility status
      * @returns {boolean} True if banner is currently visible

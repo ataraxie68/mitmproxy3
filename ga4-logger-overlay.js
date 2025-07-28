@@ -1,8 +1,6 @@
 // ===== GLOBAL STATE =====
-let ws, reconnectAttempts = 0, allExpanded = false;
-let currentFontSize = 14; // Default font size in pixels
-let currentHeaderFontSize = 13; // Default header font size in pixels
-let currentButtonFontSize = 9; // Default button font size in pixels
+let ws, reconnectAttempts = 0, allExpanded;
+let currentFontSize, currentHeaderFontSize, currentButtonFontSize;
 let userInteracting = false;
 let interactionTimeout = null;
 let consentStatus = {
@@ -12,11 +10,6 @@ let consentStatus = {
     buttonText: null
 };
 let settings = {
-    showServerCookies: false,
-    showClientCookies: false,
-    showDataLayer: true,
-    showInfo: false,
-    showJavaScriptEndpoints: false,
     platformVisibility: {}
 };
 
@@ -30,6 +23,7 @@ const DOM = {
     showDataLayerToggle: document.getElementById('showDataLayerToggle'),
     showInfoToggle: document.getElementById('showInfoToggle'),
     showJavaScriptEndpointsToggle: document.getElementById('showJavaScriptEndpointsToggle'),
+    searchAllContentToggle: document.getElementById('searchAllContentToggle'),
     prevPageBtn: document.getElementById('prevPageBtn'),
     nextPageBtn: document.getElementById('nextPageBtn'),
     increaseFontBtn: document.getElementById('increaseFontBtn'),
@@ -42,41 +36,7 @@ const DOM = {
 
 // ===== CONFIGURATION =====
 
-let CONFIG = {
-    // Default configuration - will be loaded from config.json
-    ga4Icon: '📊',
-    typeIconMap: {
-        'consent': '🛡️', 'error': '❌', 'warning': '⚠️', 'info': '💡', 'success': '✅',
-        'datalayer': '📋', 'url_change': '🌐', 'cookie': '🍪', 'request_status_update': '📡',
-
-    },
-    statusColors: {
-        info: '#64B5F6', success: '#66BB6A', warning: '#FFB74D', error: '#F06292'
-    },
-    platforms: [
-        'GA4', 'Facebook', 'TikTok', 'Snapchat', 'Pinterest', 'LinkedIn', 'Twitter/X',
-        'Microsoft/Bing', 'Google Ads', 'DoubleClick', 'Amazon', 'Criteo', 'Reddit',
-        'Quora', 'Outbrain', 'Taboola', 'sGTM', 'Server-side GTM', 'Adobe Analytics',
-        'Segment', 'Mixpanel', 'Privacy Sandbox', 'Custom Tracking'
-    ],
-    ga4Limits: {
-        'event_name': 40, 'custom_parameter': 100, 'item_name': 100, 'item_id': 100,
-        'item_brand': 100, 'item_category': 100, 'item_variant': 100, 'promotion_name': 100,
-        'creative_name': 100, 'location_id': 100, 'affiliation': 100, 'coupon': 100,
-        'currency': 3, 'method': 100, 'number_of_terms': 100, 'payment_type': 100,
-        'shipping_tier': 100, 'content_type': 100, 'custom_map': 100, 'description': 100
-    },
-    platformHighlightClasses: {},
-    platformIconMap: {},
-    platformColors: {},
-    websocket: {
-        port: 9999,
-        host: 'localhost',
-        maxReconnectAttempts: 5,
-        reconnectDelay: 2000,
-        connectionTimeout: 5000
-    }
-};
+let CONFIG = {};
 
 // ===== CONFIGURATION LOADER =====
 async function loadConfig() {
@@ -121,14 +81,41 @@ async function loadConfig() {
 
         console.log('Configuration loaded successfully');
 
+        // Initialize global variables from config defaults
+        const defaults = CONFIG.defaults || {};
+        currentFontSize = defaults.fontSize || 14;
+        currentHeaderFontSize = defaults.headerFontSize || 15;
+        currentButtonFontSize = defaults.buttonFontSize || 9;
+        allExpanded = defaults.allExpanded || false;
+
+        // Initialize settings from config defaults
+        settings.showServerCookies = defaults.showServerCookies || false;
+        settings.showClientCookies = defaults.showClientCookies || false;
+        settings.showDataLayer = defaults.showDataLayer !== undefined ? defaults.showDataLayer : true;
+        settings.showInfo = defaults.showInfo || false;
+        settings.showJavaScriptEndpoints = defaults.showJavaScriptEndpoints || false;
+        settings.searchAllContent = defaults.searchAllContent !== undefined ? defaults.searchAllContent : true;
+
         // Validate that ga4Limits were loaded correctly
         if (CONFIG.ga4Limits && CONFIG.ga4Limits.event_name) {
             console.log('✅ GA4 parameter validation ready');
+            console.log('GA4 limits loaded:', CONFIG.ga4Limits);
         } else {
             console.warn('❌ GA4 limits not properly loaded from configuration');
+            console.log('CONFIG.ga4Limits:', CONFIG.ga4Limits);
         }
     } catch (error) {
         console.warn('Error loading configuration:', error);
+        // Initialize with fallback defaults if config loading fails
+        currentFontSize = 14;
+        currentHeaderFontSize = 15;
+        currentButtonFontSize = 9;
+        allExpanded = false;
+        settings.showServerCookies = false;
+        settings.showClientCookies = false;
+        settings.showDataLayer = true;
+        settings.showInfo = false;
+        settings.showJavaScriptEndpoints = false;
     }
 }
 
@@ -217,8 +204,8 @@ function decreaseFontSize() {
 
 function initFontSize() {
     let fontSize = 14; // default font size
-    let headerFontSize = 13; // default header font size
-    let buttonFontSize = 9; // default button font size
+    let headerFontSize = 15; // default header font size
+    let buttonFontSize = 12; // default button font size
 
     try {
         const savedFontSize = localStorage.getItem('fontSize');
@@ -402,6 +389,7 @@ function checkGA4ParameterLength(paramName, paramValue, platform) {
 
     // Check if the parameter exceeds the limit
     if (current > limit) {
+        console.log(`GA4 parameter limit exceeded: ${paramName} = ${current}/${limit} chars`);
         return {
             current,
             limit,
@@ -519,18 +507,6 @@ class EventFormatter {
 
         const sections = [];
 
-        // 📍 REQUEST URL SECTION
-        if (showUrl && metadata?.request_url) {
-            sections.push(`📍 Request URL:\n${metadata.request_url}`);
-        }
-
-        // 📊 EVENT DATA SECTION (for non-raw events)
-        if (showEventData && data && eventType !== 'raw') {
-            const eventData = this.formatEventData(data, eventType);
-            if (eventData) {
-                sections.push(`📊 Event Data:\n${eventData}`);
-            }
-        }
 
         // 📋 RAW DATA SECTION
         if (showRawData && metadata?.raw_data) {
@@ -545,6 +521,19 @@ class EventFormatter {
             sections.push(rawSection);
         }
 
+        // 📍 REQUEST URL SECTION
+        if (showUrl && metadata?.request_url) {
+            sections.push(`📍 Request URL:\n${metadata.request_url}`);
+        }
+
+        // 📊 EVENT DATA SECTION (for non-raw events)
+        if (showEventData && data && eventType !== 'raw') {
+            const eventData = this.formatEventData(data, eventType);
+            if (eventData) {
+                sections.push(`📊 Event Data:\n${eventData}`);
+            }
+        }
+
         // 📡 RESPONSE INFO SECTION
         if (showResponse && metadata?.response_headers) {
             sections.push(`📡 Response Info:\n${this.formatObject(metadata.response_headers, 2)}`);
@@ -553,9 +542,21 @@ class EventFormatter {
         return sections.join('\n\n');
     }
 
-    // Clean raw data by removing internal fields
+    // Clean raw data by removing internal fields and detecting binary content
     static cleanRawData(rawData) {
         if (!rawData || typeof rawData !== 'object') return rawData;
+
+        // Check if raw data contains binary/encoded content
+        const rawDataStr = JSON.stringify(rawData);
+        const hasBinaryContent = /[\u0000-\u001F\u007F-\u009F]/.test(rawDataStr) ||
+            /[^\x20-\x7E]/.test(rawDataStr) ||
+            // rawDataStr.includes('\\u') ||
+            rawDataStr.length > 5000; // Very long data likely encoded
+
+        if (hasBinaryContent && false) {
+            return { "[Binary/Encoded data hidden]": "Content contains non-printable characters or is encoded" };
+        }
+
         const cleaned = { ...rawData };
         delete cleaned._request_path;
         delete cleaned._request_host;
@@ -573,10 +574,43 @@ class EventFormatter {
 
         const lines = text.split('\n');
         const processedLines = lines.map(line => {
-            const match = line.match(/^([^:]+):\s*(.+)$/);
+            // Handle JSON-formatted lines with quotes and commas
+            const jsonMatch = line.match(/^\s*"([^"]+)":\s*"([^"]*)"(,?)$/);
+            const jsonMatch2 = line.match(/^\s*"([^"]+)":\s*"([^"]+)"(,?)$/);
+            console.log(`Line: "${line}"`);
+            console.log(`JSON match (empty):`, jsonMatch);
+            console.log(`JSON match (non-empty):`, jsonMatch2);
+
+            // Try both patterns
+            const match = jsonMatch || jsonMatch2;
             if (match) {
                 const paramName = match[1].trim();
                 const paramValue = match[2].trim();
+                const hasComma = match[3] === ',';
+
+                console.log(`Processing JSON parameter: ${paramName} = "${paramValue}"`);
+
+                // Check GA4 parameter length limits
+                const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
+                if (lengthCheck) {
+                    console.log(`Length violation found for ${paramName}: ${lengthCheck.current}/${lengthCheck.limit}`);
+                    const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
+                    const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
+                    return `  "${paramName}": "${paramValue}"${hasComma ? ',' : ''}${warningText}`;
+                }
+
+                // Apply universal parameter highlighting
+                const highlighted = this.highlightImportantParams(paramName, paramValue);
+                if (highlighted !== paramValue) {
+                    return `  "${paramName}": ${highlighted}${hasComma ? ',' : ''}`;
+                }
+            }
+
+            // Handle simple key-value format (fallback)
+            const simpleMatch = line.match(/^([^:]+):\s*(.+)$/);
+            if (simpleMatch) {
+                const paramName = simpleMatch[1].trim();
+                const paramValue = simpleMatch[2].trim();
 
                 // Check GA4 parameter length limits
                 const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
@@ -656,6 +690,12 @@ class EventFormatter {
             }
         }
 
+        // Add debug info
+        if (data.debug_info) {
+            lines.push('\nDebug Info:');
+            lines.push(this.formatObject(data.debug_info, 2));
+        }
+
         // Add extra info
         if (data.extra_info && Array.isArray(data.extra_info)) {
             lines.push('\nExtra Info:');
@@ -668,12 +708,6 @@ class EventFormatter {
             for (const [key, value] of Object.entries(data.mapped_data)) {
                 lines.push(`  ${key}: ${value}`);
             }
-        }
-
-        // Add debug info
-        if (data.debug_info) {
-            lines.push('\nDebug Info:');
-            lines.push(this.formatObject(data.debug_info, 2));
         }
 
         // Add JavaScript endpoint info
@@ -959,13 +993,13 @@ class EventFormatter {
     // Format URL Change events
     static formatUrlChangeEvent(data) {
         const lines = [];
-        const keyLabelMap = {
+        
+        // Basic navigation info
+        const basicInfo = {
             from_url: 'From',
             previous_url: 'From',
             to_url: 'To',
             url: 'To',
-            title: 'Title',
-            description: 'Description',
             navigation_type: 'Navigation Type',
             referrer: 'Referrer',
             user_agent: 'User Agent',
@@ -977,12 +1011,43 @@ class EventFormatter {
 
         const printedLabels = new Set();
 
-        // Add navigation details
-        for (const [key, label] of Object.entries(keyLabelMap)) {
+        // Add basic navigation details
+        for (const [key, label] of Object.entries(basicInfo)) {
             if (data[key] && !printedLabels.has(label)) {
                 lines.push(`${label}: ${data[key]}`);
                 printedLabels.add(label);
             }
+        }
+
+        // Add page metadata section
+        const metadataFields = [];
+        
+        // Page title and description
+        if (data.title) metadataFields.push(`📄 Title: ${data.title}`);
+        if (data.description) metadataFields.push(`📝 Description: ${data.description}`);
+        if (data.keywords) metadataFields.push(`🏷️ Keywords: ${data.keywords}`);
+        
+        // Open Graph tags
+        if (data.og_title) metadataFields.push(`📱 OG Title: ${data.og_title}`);
+        if (data.og_description) metadataFields.push(`📱 OG Description: ${data.og_description}`);
+        if (data.og_image) metadataFields.push(`📱 OG Image: ${data.og_image}`);
+        if (data.og_url) metadataFields.push(`📱 OG URL: ${data.og_url}`);
+        
+        // Twitter Card tags
+        if (data.twitter_title) metadataFields.push(`🐦 Twitter Title: ${data.twitter_title}`);
+        if (data.twitter_description) metadataFields.push(`🐦 Twitter Description: ${data.twitter_description}`);
+        if (data.twitter_image) metadataFields.push(`🐦 Twitter Image: ${data.twitter_image}`);
+        
+        // SEO and technical metadata
+        if (data.canonical_url) metadataFields.push(`🔗 Canonical URL: ${data.canonical_url}`);
+        if (data.language) metadataFields.push(`🌐 Language: ${data.language}`);
+        if (data.viewport) metadataFields.push(`📱 Viewport: ${data.viewport}`);
+        if (data.robots) metadataFields.push(`🤖 Robots: ${data.robots}`);
+
+        // Add metadata section if we have any
+        if (metadataFields.length > 0) {
+            lines.push('\n📊 Page Metadata:');
+            lines.push(...metadataFields);
         }
 
         // Add query parameters
@@ -992,7 +1057,7 @@ class EventFormatter {
                 const urlObj = new URL(currentUrl);
                 const params = Array.from(urlObj.searchParams.entries());
                 if (params.length > 0) {
-                    lines.push('\nQuery Parameters:');
+                    lines.push('\n🔍 Query Parameters:');
                     params.forEach(([key, value]) => {
                         const displayValue = value.length > 100 ? value.substring(0, 100) + '...' : value;
                         lines.push(`  ${key}: ${displayValue}`);
@@ -1079,20 +1144,7 @@ function getMarketingPixelSummary(data, event) {
 
     // Add platform-specific tracking parameters
     let clickIds = '';
-    const platformTrackingParamMap = {
-        'GA4': ['gclid', 'dclid', 'wbraid', 'gbraid'],
-        'Google Ads': ['gclid', 'dclid', 'wbraid', 'gbraid'],
-        'DoubleClick': ['gclid', 'dclid', 'wbraid', 'gbraid'],
-        'Facebook': ['fbc', 'fbp', '_fbc', '_fbp'],
-        'TikTok': ['ttclid', 'ttp'],
-        'Microsoft/Bing': ['msclkid'],
-        'Pinterest': ['pinclid'],
-        'LinkedIn': ['liclid'],
-        'Twitter/X': ['twclid'],
-        'Snapchat': ['scclid']
-    };
-
-    const platformClickIds = platformTrackingParamMap[platform];
+    const platformClickIds = getPlatformConfig(platform, 'trackingParams') || [];
     if (platformClickIds) {
         const foundClickIds = [];
         for (const paramName of platformClickIds) {
@@ -1148,23 +1200,21 @@ const messageHandlers = {
         const { event, data } = logEntry;
         const icon = '🍪';
 
-        // Handle different cookie banner events
+        // Handle banner_detected event (includes cookie details from pre_banner_cookie_summary)
         if (event === 'banner_detected') {
-            const confidence = data.confidence || 0;
-            const reasons = data.reasons || [];
-            const confidenceColor = getConfidenceColor(confidence);
             const cmpVendor = data.cmp_vendor || 'Unknown CMP';
 
-            const summary = `<b>Cookie Banner Detected</b> - <span style="color: ${confidenceColor}; font-weight: bold;">${confidence}% confidence</span> - <span style="color: #007bff; font-weight: bold;">${cmpVendor}</span>`;
+            // Build summary with cookie info if available
+            let summary = `<b>Cookie Banner Detected</b> - <span style="color: #007bff; font-weight: bold;">${cmpVendor}</span>`;
 
             const elementInfo = data.element_info || {};
             const position = data.position || {};
             const styling = data.styling || {};
 
             const details = [
-                'Cookie Banner Analysis:',
+                '🛡️ Cookie Banner Analysis:',
                 `CMP Vendor: ${cmpVendor}`,
-                `Confidence: ${confidence}% (${reasons.join(', ')})`,
+
                 `Detection Method: ${data.detection_method || 'Unknown'}`,
                 `Element: ${elementInfo.tagName || data.tag || 'Unknown'} ${elementInfo.id || data.id ? `#${elementInfo.id || data.id}` : ''} ${elementInfo.className || data.classes ? `.${elementInfo.className || data.classes}` : ''}`,
                 `Position: ${Math.round(position.left || data.bounding_rect?.left || 0)}, ${Math.round(position.top || data.bounding_rect?.top || 0)} (${Math.round(position.width || data.bounding_rect?.width || 0)}×${Math.round(position.height || data.bounding_rect?.height || 0)})`,
@@ -1173,76 +1223,71 @@ const messageHandlers = {
                 `Text Snippet: "${data.text_snippet || data.text_preview || 'No text'}"`,
                 `Page URL: ${data.page_url || data.url || 'Unknown'}`,
                 `Viewport: ${data.viewport?.width || 0}×${data.viewport?.height || 0}`
-            ].join('\n');
+            ];
 
-            renderMessage(summary, 'cookie_banner', icon, true, false, details);
-
-        } else if (event === 'pre_banner_cookie_summary') {
+            // Add cookie analysis if available in the data
             const totalCookies = data.total_cookies || 0;
             const marketingCount = data.marketing_cookies_count || 0;
             const nonMarketingCount = data.non_marketing_cookies_count || 0;
 
-            // Create color-coded summary
-            const marketingColor = marketingCount > 0 ? '#ef4444' : '#22c55e'; // red if marketing cookies, green if none
-            const summary = `<b>Pre-Banner Cookie Summary</b> - <span style="color: ${marketingColor}; font-weight: bold;">${totalCookies} total cookies</span> (<span style="color: #ef4444;">${marketingCount} marketing</span>, <span style="color: #3b82f6;">${nonMarketingCount} non-marketing</span>)`;
+            if (totalCookies > 0) {
+                const marketingColor = marketingCount > 0 ? '#ef4444' : '#22c55e';
+                summary += ` - <span style="color: ${marketingColor}; font-weight: bold;">${totalCookies} cookies</span> (<span style="color: #ef4444;">${marketingCount} marketing</span>)`;
 
-            // Build detailed cookie list
-            const details = [
-                'Pre-Banner Cookie Analysis:',
-                `Total Cookies Found: ${totalCookies}`,
-                `Marketing Cookies: ${marketingCount}`,
-                `Non-Marketing Cookies: ${nonMarketingCount}`,
-                ''
-            ];
+                details.push(
+                    '',
+                    '🍪 Cookie Analysis:',
+                    `Total Cookies Found: ${totalCookies}`,
+                    `Marketing Cookies: ${marketingCount}`,
+                    `Non-Marketing Cookies: ${nonMarketingCount}`
+                );
 
-            // Add marketing cookies section
-            if (data.marketing_cookies && data.marketing_cookies.length > 0) {
-                details.push('🚨 Marketing Cookies (Potential GDPR Violation):');
-                data.marketing_cookies.forEach(cookie => {
-                    const riskIndicator = cookie.banner_visible ? ' ⚠️ [BANNER VISIBLE]' : '';
-                    const action = cookie.action || 'unknown';
-                    details.push(`  • ${cookie.name} (${action})${riskIndicator}`);
-                    if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
-                    if (cookie.path) details.push(`    Path: ${cookie.path}`);
-                });
-                details.push('');
-            }
+                // Add marketing cookies section
+                if (data.marketing_cookies && data.marketing_cookies.length > 0) {
+                    details.push('', '🚨 Marketing Cookies (Potential GDPR Violation):');
+                    data.marketing_cookies.forEach(cookie => {
+                        const riskIndicator = cookie.banner_visible ? ' ⚠️ [BANNER VISIBLE]' : '';
+                        const action = cookie.action || 'unknown';
+                        details.push(`  • <span class="cookie-name">${cookie.name}</span> (${action})${riskIndicator}`);
+                        if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
+                        if (cookie.path) details.push(`    Path: ${cookie.path}`);
+                    });
+                }
 
-            // Add non-marketing cookies section
-            if (data.non_marketing_cookies && data.non_marketing_cookies.length > 0) {
-                details.push('✅ Non-Marketing Cookies:');
-                data.non_marketing_cookies.forEach(cookie => {
-                    const action = cookie.action || 'unknown';
-                    details.push(`  • ${cookie.name} (${action})`);
-                    if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
-                    if (cookie.path) details.push(`    Path: ${cookie.path}`);
-                });
-                details.push('');
-            }
+                // Add non-marketing cookies section
+                if (data.non_marketing_cookies && data.non_marketing_cookies.length > 0) {
+                    details.push('', '✅ Non-Marketing Cookies:');
+                    data.non_marketing_cookies.forEach(cookie => {
+                        const action = cookie.action || 'unknown';
+                        details.push(`  • <span class="cookie-name">${cookie.name}</span> (${action})`);
+                        if (cookie.domain) details.push(`    Domain: ${cookie.domain}`);
+                        if (cookie.path) details.push(`    Path: ${cookie.path}`);
+                    });
+                }
 
-            // Add compliance warning if marketing cookies found
-            if (marketingCount > 0) {
-                details.push('⚠️  COMPLIANCE WARNING:');
-                details.push('Marketing cookies were set before the consent banner appeared.');
-                details.push('This may constitute a GDPR violation if user consent was not obtained.');
-                details.push('');
-            }
+                // Add compliance warning if marketing cookies found
+                if (marketingCount > 0) {
+                    details.push('', '⚠️  COMPLIANCE WARNING:');
+                    details.push('Marketing cookies were set before the consent banner appeared.');
+                    details.push('This may constitute a GDPR violation if user consent was not obtained.');
+                }
 
-            // Add full cookie details if available
-            if (data.all_cookies && data.all_cookies.length > 0) {
-                details.push('📋 Complete Cookie Details:');
-                data.all_cookies.forEach((cookie, index) => {
-                    details.push(`${index + 1}. ${cookie.name}`);
-                    details.push(`   Action: ${cookie.action || 'unknown'}`);
-                    details.push(`   Type: ${cookie.type || 'unknown'}`);
-                    details.push(`   Source: ${cookie.source || 'unknown'}`);
-                    if (cookie.domain) details.push(`   Domain: ${cookie.domain}`);
-                    if (cookie.path) details.push(`   Path: ${cookie.path}`);
-                    if (cookie.is_marketing !== undefined) details.push(`   Marketing: ${cookie.is_marketing ? 'Yes' : 'No'}`);
-                    if (cookie.banner_visible !== undefined) details.push(`   Banner Visible: ${cookie.banner_visible ? 'Yes' : 'No'}`);
-                    if (cookie.timestamp) details.push(`   Timestamp: ${new Date(cookie.timestamp * 1000).toLocaleString()}`);
-                    details.push('');
-                });
+                // Add full cookie details if available
+                if (data.all_cookies && data.all_cookies.length > 0) {
+                    details.push('', '📋 Complete Cookie Details:');
+                    data.all_cookies.forEach((cookie, index) => {
+                        details.push(`${index + 1}. ${cookie.name}`);
+                        details.push(`   Action: ${cookie.action || 'unknown'}`);
+                        details.push(`   Type: ${cookie.type || 'unknown'}`);
+                        details.push(`   Source: ${cookie.source || 'unknown'}`);
+                        if (cookie.domain) details.push(`   Domain: ${cookie.domain}`);
+                        if (cookie.path) details.push(`   Path: ${cookie.path}`);
+                        if (cookie.is_marketing !== undefined) details.push(`   Marketing: ${cookie.is_marketing ? 'Yes' : 'No'}`);
+                        if (cookie.banner_visible !== undefined) details.push(`   Banner Visible: ${cookie.banner_visible ? 'Yes' : 'No'}`);
+                        if (cookie.timestamp) details.push(`   Timestamp: ${new Date(cookie.timestamp * 1000).toLocaleString()}`);
+                        details.push('');
+                    });
+                }
             }
 
             renderMessage(summary, 'cookie_banner', icon, true, false, details.join('\n'));
@@ -1359,7 +1404,7 @@ const messageHandlers = {
         const icon = CONFIG.typeIconMap.datalayer;
         // event unknown
         const summary = event === 'unknown' ? 'DataLayer Object - expand for details' : `DataLayer Event: <b>${event}</b>`;;
-  
+
         const details = formatDataLayerAsJSON(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
         renderMessage(summary, 'DataLayer', icon, false, false, details);
     },
@@ -1529,9 +1574,6 @@ function updateRequestStatus(data) {
 
     const messageTextEl = targetMessage.querySelector('.message-text');
     const detailsEl = targetMessage.querySelector('.message-details');
-    // set type of message to request_status_update
-  
-
 
     // Handle JavaScript endpoint platform correction
     if (data.javascript_endpoint && data.platform) {
@@ -1580,8 +1622,29 @@ function updateRequestStatus(data) {
         }
     } else if (hasResponseInfo(data)) {
         // Handle successful requests with response info
-        if (detailsEl && !detailsEl.textContent.includes('--- Response Info ---')) {
+        if (detailsEl && !detailsEl.textContent.includes('--- Response Info')) {
             let responseInfo = `\n\n--- Response Info   ---\nStatus: ${data.status_code} (Success)`;
+            
+            // Check if we already have response info for this specific status code and content type
+            const statusPattern = `Status: ${data.status_code} \\(Success\\)`;
+            const contentTypePattern = data.content_type ? `Content Type: ${data.content_type}` : '';
+            
+            // Count existing response info entries
+            const existingResponseInfoCount = (detailsEl.textContent.match(/--- Response Info/g) || []).length;
+            
+            // If we already have 3 or more response info entries, don't add more
+            if (existingResponseInfoCount >= 3) {
+                return; // Skip adding more response info to prevent spam
+            }
+            
+            // Check for exact duplicate (same status and content type)
+            if (contentTypePattern) {
+                const exactDuplicate = detailsEl.textContent.includes(statusPattern) && 
+                                     detailsEl.textContent.includes(contentTypePattern);
+                if (exactDuplicate) {
+                    return; // Skip exact duplicate
+                }
+            }
 
             // Add JavaScript-specific information if this is a JS endpoint
             if (data.javascript_endpoint) {
@@ -1595,7 +1658,7 @@ function updateRequestStatus(data) {
             detailsEl.textContent += responseInfo;
         }
     }
-    
+
     // Re-apply filter after updating the message type
     if (data.javascript_endpoint) {
         applyFilter();
@@ -1678,68 +1741,6 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
     }
 }
 
-function renderMessageWithPriority(message, messageType, icon, isBold, isNewPage, details, extraClasses = '', priority = 'normal') {
-    const msg = document.createElement('div');
-    msg.className = `message ${extraClasses}`;
-    msg.setAttribute('data-type', messageType);
-
-    // Create timestamp with milliseconds
-    const now = new Date();
-    const timestampWithMillis = now.toLocaleTimeString() + '.' + now.getMilliseconds().toString().padStart(3, '0');
-
-    const weightClass = isBold ? 'font-weight: 600;' : '';
-    const pageClass = isNewPage ? 'page-separator' : '';
-
-    // Add timestamp to details - support HTML content
-    let detailsWithTimestamp;
-    if (details) {
-        // Check if details contains HTML (has < and > characters)
-        const isHtml = details.includes('<') && details.includes('>');
-        if (isHtml) {
-            detailsWithTimestamp = `<div class="timestamp-header">Timestamp: ${timestampWithMillis}</div><div class="details-content">${details}</div>`;
-        } else {
-            detailsWithTimestamp = `Timestamp: ${timestampWithMillis}\n\n${details}`;
-        }
-    } else {
-        detailsWithTimestamp = `Timestamp: ${timestampWithMillis}`;
-    }
-
-    msg.innerHTML = `
-        <div class="message-content">
-            <div class="message-icon">${icon}</div>
-            <div class="message-text" style="${weightClass}">${message}</div>
-        </div>
-        <div class="message-details" style="display: none;">${detailsWithTimestamp}</div>
-    `;
-
-    if (pageClass) msg.classList.add(pageClass);
-    msg.classList.add('expandable');
-    attachExpandHandler(msg);
-
-    // Apply visibility based on current filter and settings
-    const filterText = document.getElementById('filterInput')?.value.toLowerCase() || '';
-    const messageText = (message + ' ' + details).toLowerCase();
-
-    const isUrlChange = messageType === 'url_change' || messageType === 'URLChange';
-    const typeVisible = checkMessageVisibility(messageType);
-    const textMatch = !filterText || messageText.includes(filterText);
-
-    const shouldShow = isUrlChange || (typeVisible && textMatch);
-    msg.style.display = shouldShow ? 'block' : 'none';
-
-    // Priority-based insertion
-    if (priority === 'top') {
-        // For URL changes, we want chronological order but as section headers
-        // Insert URL changes at the bottom, but they act as section separators
-        DOM.content.appendChild(msg);
-    } else {
-        DOM.content.appendChild(msg);
-    }
-
-    if (shouldShow && !userInteracting) {
-        msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-}
 
 function attachExpandHandler(msg) {
     msg.addEventListener('click', function () {
@@ -1812,7 +1813,8 @@ function initializeSettings() {
         { element: DOM.showClientCookiesToggle, setting: 'showClientCookies' },
         { element: DOM.showDataLayerToggle, setting: 'showDataLayer' },
         { element: DOM.showInfoToggle, setting: 'showInfo' },
-        { element: DOM.showJavaScriptEndpointsToggle, setting: 'showJavaScriptEndpoints' }
+        { element: DOM.showJavaScriptEndpointsToggle, setting: 'showJavaScriptEndpoints' },
+        { element: DOM.searchAllContentToggle, setting: 'searchAllContent' }
     ];
 
     toggleMappings.forEach(({ element, setting }) => {
@@ -1850,7 +1852,17 @@ function applyFilter() {
 
     messages.forEach(msg => {
         const messageType = msg.getAttribute('data-type');
-        const messageText = msg.textContent.toLowerCase();
+        
+        // Get text to search based on setting
+        let messageText = '';
+        if (settings.searchAllContent) {
+            // Search all content (summary + details)
+            messageText = msg.textContent.toLowerCase();
+        } else {
+            // Search only summary
+            const messageTextEl = msg.querySelector('.message-text');
+            messageText = messageTextEl ? messageTextEl.textContent.toLowerCase() : '';
+        }
 
         const isUrlChange = messageType === 'url_change' || messageType === 'URLChange';
         const typeVisible = checkMessageVisibility(messageType);
@@ -2010,7 +2022,8 @@ function initializeEventListeners() {
         { element: DOM.showClientCookiesToggle, setting: 'showClientCookies' },
         { element: DOM.showDataLayerToggle, setting: 'showDataLayer' },
         { element: DOM.showInfoToggle, setting: 'showInfo' },
-        { element: DOM.showJavaScriptEndpointsToggle, setting: 'showJavaScriptEndpoints' }
+        { element: DOM.showJavaScriptEndpointsToggle, setting: 'showJavaScriptEndpoints' },
+        { element: DOM.searchAllContentToggle, setting: 'searchAllContent' }
     ];
 
     settingsToggles.forEach(({ element, setting }) => {

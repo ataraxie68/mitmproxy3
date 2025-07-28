@@ -1172,6 +1172,18 @@ body::before {
     font-size: var(--content-font-size, 12px);
     color: var(--text-secondary);
     margin-right: 8px;
+    background: rgba(245, 158, 11, 0.2);
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 1px solid rgba(245, 158, 11, 0.375);
+    display: inline-block;
+    transition: all 0.2s ease;
+}
+
+.cookie-name:hover {
+    background: rgba(245, 158, 11, 0.3);
+    transform: scale(1.02);
+    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
 }
 
 .cookie-source {
