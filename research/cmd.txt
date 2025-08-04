@@ -1,0 +1,1 @@
+playwright open --save-har=bechtle-tagging.har  --save-har-glob="**://tagging.bechtle.com/**"  https://www.bechtle.com

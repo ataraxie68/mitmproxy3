@@ -1,0 +1,449 @@
+{
+  "total_requests": 113,
+  "domains": [
+    "pagead2.googlesyndication.com",
+    "tagging.bechtle.com",
+    "api.usercentrics.eu",
+    "www.bechtle.com",
+    "www.googletagmanager.com",
+    "app.usercentrics.eu",
+    "uct.service.usercentrics.eu",
+    "consent-api.service.consent.usercentrics.eu",
+    "media.bechtle.com"
+  ],
+  "tracking_domains": [
+    "pagead2.googlesyndication.com",
+    "tagging.bechtle.com",
+    "www.googletagmanager.com"
+  ],
+  "api_endpoints": [
+    {
+      "url": "https://www.bechtle.com/api/bechtle-public/bootstrap?country=de&language=de",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bens/maintenance",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bens/locale-recommendation",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/shop/cart/miniCart/UPDATE",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/shop/cmshtml/htmldata",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/shop/my-account/avatar/getAvatarURL",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://api.usercentrics.eu/settings/FdEA6sZb6/latest/languages.json",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://api.usercentrics.eu/settings/FdEA6sZb6/latest/de.json",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/gateway/api/session/messages",
+      "method": "GET",
+      "status": 200,
+      "content_type": "text/plain; charset=UTF-8"
+    },
+    {
+      "url": "https://api.usercentrics.eu/translations/translations-de.json",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bechtle-public/translations?language=de&nameSpace=productRecommendations&nameSpace=common",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bechtle-public/translations?language=de&nameSpace=common&nameSpace=fastActionMenu",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/bechtlecommercewebservices/v2/bechtle-de/communication/data?fields=DEFAULT&lang=de",
+      "method": "GET",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bechtle-public/components/recommendations?language=de&country=de",
+      "method": "POST",
+      "status": 204,
+      "content_type": "x-unknown"
+    },
+    {
+      "url": "https://www.bechtle.com/api/bechtle-public/components/recommendations?language=de&country=de",
+      "method": "POST",
+      "status": 200,
+      "content_type": "application/json"
+    }
+  ],
+  "tracking_scripts": [
+    {
+      "url": "https://www.googletagmanager.com/gtm.js?id=GTM-MKN6XL6&gtm_auth=b-bxiTj956pwFavt4luE9g&gtm_preview=env-1&gtm_cookies_win=x",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtag/js?id=DC-11109278&cx=c&gtm=45He57v0v865816244za200&tag_exp=101509157~103116026~103200004~103233427~104684208~104684211~105087538~105087540~105103161~105103163",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtag/js?id=G-BZPFMFYT5K&cx=c&gtm=45He57v0v865816244za200&tag_exp=101509157~103116026~103200004~103233427~104684208~104684211~105087538~105087540~105103161~105103163",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/ccm/collect?tid=DC-11109278&en=page_view&dl=https%3A%2F%2Fwww.bechtle.com%2F&scrsrc=www.googletagmanager.com&frm=0&rnd=440886765.1754340080&navt=n&npa=1&gdid=dOThhZD&_tu=CA&gtm=45fe57v0v9181774044z8865816244za200zb865816244zd865816244&gcs=G100&gcd=13p3pPp2p5l1&dma_cps=-&dma=1&tag_exp=101509157~103116026~103200004~103233427~104527906~104528501~104684208~104684211~104948812~104948813~105087538~105087540~105103161~105103163&tft=1754340079884&tfd=1193&apve=1&apvf=f",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "url": "https://tagging.bechtle.com/g/collect?v=2&tid=G-BZPFMFYT5K&gtm=45je57v0v880460134z8865816244za200zb865816244zd865816244&_p=1754340079229&gcs=G100&gcd=13p3pPp2p5l1&npa=1&dma_cps=-&dma=1&tag_exp=101509157~103116026~103200004~103233427~104527906~104528500~104684208~104684211~104948813~105087538~105087540~105103161~105103163&cid=250232523.1754340080&ecid=1312810508&ul=en-us&sr=1280x720&_fplc=0&ur=DE-HH&uaa=arm&uab=64&uafvl=Not%253BA%253DBrand%3B99.0.0.0%7CHeadlessChrome%3B139.0.7258.5%7CChromium%3B139.0.7258.5&uamb=0&uam=&uap=macOS&uapv=15.5.0&uaw=0&are=1&frm=0&pscdl=denied&sst.rnd=440886765.1754340080&sst.etld=google.de&sst.gcsub=region1&sst.adr=1&sst.tft=1754340079229&sst.lpc=106808336&sst.navt=n&sst.ude=0&_s=1&sid=1754340079&sct=1&seg=0&dl=https%3A%2F%2Fwww.bechtle.com%2F&dt=Bechtle%20AG%20%7C%20Der%20IT-Zukunftspartner&_tu=DA&en=page_view&_fv=2&_nsi=1&_ss=1&_c=1&ep.shop_country=DE&ep.shop_language=de&ep.pagetype=home&ep.intern=extern&ep.context=anonymous&ep.vid=fa137ce567d845b7beeb981c591d76e4&ep.dy_pagetype=HOMEPAGE&ep.locale=de_DE&ep.referrer=&ep.dy_session=optout-session-id&ep.dy_user=optout-user-id&ep.sst_event_category=page_view&ep.dy_user_agent=optout-useragent&ep.portfolio_type=no_portfolio&ep.show_dynamic_content=true&ep.event_id=ed24debd-e3e7-4dea-9e8a-9f7844f9e37e&ep.linkedin_consent_name=LinkedIn%20Insight%20Tag&ep.linkedin_consent_status=false&ep.consent_status_facebook=false&ep.consent_name_facebook=Facebook%20Pixel&ep.host_name=www.bechtle.com&ep.gads_consent_status=false&ep.gads_consent_name=Google%20Ads%20Remarketing&epn.linkedin_timestamp=1754340079841&ep.dy_categories=&up.user_procurement=public&tfd=1232&richsstsse",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "cookies": [
+    "TS01e14ede=019228391830f5360fb5d1f008aaec956c981653ceec64af435788176773b570c278e61f8501a8c68e18fc3974d5db36a72234a3b7fa4d2c265efa584abe31ac7b314c7b1c46dd9cf3da828795c152a60af8498bb7a92df7186cffb932c390e942b468a5d8",
+    "bechtle-legacy=c3d9dcc44c084d009d88ed2d1eed7e27_1754340078819_8ba0e17d34edf5ed63e6f8b921101ef0",
+    "bechtle=c3d9dcc44c084d009d88ed2d1eed7e27_1754340078819_8ba0e17d34edf5ed63e6f8b921101ef0"
+  ],
+  "headers": {
+    "accept": [
+      "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "application/json",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "*/*",
+      "application/json, text/javascript, */*; q=0.01",
+      "text/css,*/*;q=0.1"
+    ],
+    "accept-encoding": [
+      "gzip, deflate, br, zstd",
+      "identity;q=1, *;q=0"
+    ],
+    "connection": [
+      "keep-alive"
+    ],
+    "host": [
+      "tagging.bechtle.com",
+      "www.bechtle.com"
+    ],
+    "sec-fetch-dest": [
+      "font",
+      "document",
+      "script",
+      "image",
+      "empty",
+      "video",
+      "style"
+    ],
+    "sec-fetch-mode": [
+      "no-cors",
+      "same-origin",
+      "navigate",
+      "cors"
+    ],
+    "sec-fetch-site": [
+      "same-site",
+      "same-origin",
+      "none",
+      "cross-site"
+    ],
+    "sec-fetch-user": [
+      "?1"
+    ],
+    "upgrade-insecure-requests": [
+      "1"
+    ],
+    "user-agent": [
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/139.0.7258.5 Safari/537.36"
+    ],
+    "sec-ch-ua": [
+      "\"Not;A=Brand\";v=\"99\", \"HeadlessChrome\";v=\"139\", \"Chromium\";v=\"139\""
+    ],
+    "sec-ch-ua-mobile": [
+      "?0"
+    ],
+    "sec-ch-ua-platform": [
+      "\"macOS\""
+    ],
+    "cookie": [
+      "bechtle-legacy=c3d9dcc44c084d009d88ed2d1eed7e27_1754340078819_8ba0e17d34edf5ed63e6f8b921101ef0; bechtle=c3d9dcc44c084d009d88ed2d1eed7e27_1754340078819_8ba0e17d34edf5ed63e6f8b921101ef0; TS01e14ede=019228391830f5360fb5d1f008aaec956c981653ceec64af435788176773b570c278e61f8501a8c68e18fc3974d5db36a72234a3b7fa4d2c265efa584abe31ac7b314c7b1c46dd9cf3da828795c152a60af8498bb7a92df7186cffb932c390e942b468a5d8"
+    ],
+    "referer": [
+      "https://www.bechtle.com/_ui/responsive/theme-next/css/next_base.min.css",
+      "https://app.usercentrics.eu/browser-ui/3.77.0/DefaultUI-1d0f388b-776d3e94.js",
+      "https://www.bechtle.com/assets/product/apps/micro-react.es.js",
+      "https://www.bechtle.com/.resources/bechtle-ui/webresources/css/neo-app~2025-07-21-11-50-38-000~cache.css",
+      "https://app.usercentrics.eu/browser-ui/3.77.0/index-f43cc3d4.js",
+      "https://www.bechtle.com/assets/product/apps/chunks/client.entry-0cdc62ff.chunk.js",
+      "https://www.bechtle.com/",
+      "https://app.usercentrics.eu/browser-ui/3.77.0/index.module.js"
+    ],
+    "origin": [
+      "https://www.bechtle.com"
+    ],
+    ":authority": [
+      "pagead2.googlesyndication.com",
+      "api.usercentrics.eu",
+      "www.googletagmanager.com",
+      "app.usercentrics.eu",
+      "uct.service.usercentrics.eu",
+      "consent-api.service.consent.usercentrics.eu",
+      "media.bechtle.com"
+    ],
+    ":method": [
+      "GET",
+      "POST"
+    ],
+    ":path": [
+      "/browser-ui/3.77.0/VirtualServiceItem-2cbcda47.js",
+      "/browser-ui/3.77.0/FirstLayerCustomization-11d07368-05fd4f6b.js",
+      "/ccm/collect?tid=DC-11109278&en=page_view&dl=https%3A%2F%2Fwww.bechtle.com%2F&scrsrc=www.googletagmanager.com&frm=0&rnd=440886765.1754340080&navt=n&npa=1&gdid=dOThhZD&_tu=CA&gtm=45fe57v0v9181774044z8865816244za200zb865816244zd865816244&gcs=G100&gcd=13p3pPp2p5l1&dma_cps=-&dma=1&tag_exp=101509157~103116026~103200004~103233427~104527906~104528501~104684208~104684211~104948812~104948813~105087538~105087540~105103161~105103163&tft=1754340079884&tfd=1193&apve=1&apvf=f",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/b74cb50220b54b1e85466189e4e1e342?version=0",
+      "/browser-ui/3.77.0/SaveButton-c053be25.js",
+      "/browser-ui/3.77.0/index-4cfdf1c3.js",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/36ade16bb74249a09605ff4cc17ba851?version=0",
+      "/browser-ui/3.77.0/DefaultUI-1d0f388b-776d3e94.js",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/e6d13395811f46d2a827dc5ee98cd117?version=0",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/59a2cea40c91471b97e2a58c0b0f94dd?version=0",
+      "/settings/FdEA6sZb6/latest/languages.json",
+      "/gtag/js?id=G-BZPFMFYT5K&cx=c&gtm=45He57v0v865816244za200&tag_exp=101509157~103116026~103200004~103233427~104684208~104684211~105087538~105087540~105103161~105103163",
+      "/translations/translations-de.json",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/502d3402588446659d4d3f2a9e46399b?version=0",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/30e1eab34df34f9885c8516fcf1d395f?version=0",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/44875ccedbde4f13ad41385bd01036b5?version=0",
+      "/browser-ui/3.77.0/index.module.js",
+      "/browser-ui/3.77.0/DefaultData-982e0079-31fed5d5.js",
+      "/settings/FdEA6sZb6/latest/de.json",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/-/a0534c00820d4b67a7df71884148d575?x=51&y=28&format=png&strip=yes",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/738d2ba01deb4e8098db5eae8df53b9e?version=0",
+      "/browser-ui/3.77.0/SecondLayerUI-7a5297a4-c403dff1.js",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/13c05f1038a24a42b28c4d835996b148?version=0",
+      "/browser-ui/3.77.0/ButtonsCustomization-6038dff1-a083c4a6.js",
+      "/browser-ui/3.77.0/index-f43cc3d4.js",
+      "/session/1px.png?settingsId=FdEA6sZb6",
+      "/browser-ui/3.77.0/PrivacyButton-f987b25c.js",
+      "/browser-ui/3.77.0/DefaultTabs-6e3328cc.js",
+      "/browser-ui/latest/loader.js",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/c2c97b26ffba4d79aedae626195b574c?version=0",
+      "/gtm.js?id=GTM-MKN6XL6&gtm_auth=b-bxiTj956pwFavt4luE9g&gtm_preview=env-1&gtm_cookies_win=x",
+      "/uct?v=1&sid=FdEA6sZb6&t=1&abv=&r=https%3A%2F%2Fwww.bechtle.com%2F&cb=1754340079609",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/ef07560f330a405f9529520a0ce706d1?version=0",
+      "/gtag/js?id=DC-11109278&cx=c&gtm=45He57v0v865816244za200&tag_exp=101509157~103116026~103200004~103233427~104684208~104684211~105087538~105087540~105103161~105103163",
+      "/consent/uw/3",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/a34e1b65c42f4265a77e30a6afd8ceab?version=0",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/-/5661d50d6fd2478284aef069711be6e1?x=51&y=28&format=png&strip=yes",
+      "/is/180712/1c4b3d4ee288fc9434f5175bf56070570/c3/picture/ebc851e7922e4237861256bbe379e4e8?version=0"
+    ],
+    ":scheme": [
+      "https"
+    ],
+    "sec-fetch-storage-access": [
+      "active"
+    ],
+    "range": [
+      "bytes=0-"
+    ],
+    "x-bens-version": [
+      "4.0.55"
+    ],
+    "x-requested-with": [
+      "XMLHttpRequest"
+    ],
+    "priority": [
+      "u=1",
+      "i",
+      "u=1, i"
+    ],
+    "content-type": [
+      "application/json"
+    ],
+    "access-control-allow-origin": [
+      "*"
+    ],
+    "content-length": [
+      "130",
+      "131",
+      "2432",
+      "0"
+    ],
+    "x-request-id": [
+      "8b4396cf-bc44-425d-8b31-c2148b4c26a7"
+    ]
+  },
+  "response_times": [
+    463.51800000000003,
+    29.957,
+    36.443,
+    138.054,
+    129.493,
+    166.777,
+    153.098,
+    85.38799999999999,
+    153.708,
+    84.22500000000001,
+    124.172,
+    81.511,
+    97.375,
+    128.344,
+    142.284,
+    142.545,
+    49.168,
+    40.84,
+    41.399,
+    40.045,
+    44.584,
+    28.177,
+    57.8,
+    64.518,
+    73.65299999999999,
+    70.726,
+    71.125,
+    41.846999999999994,
+    28.840999999999998,
+    33.999,
+    25.87,
+    31.449,
+    29.997,
+    30.439,
+    32.285,
+    34.827999999999996,
+    26.189,
+    32.889,
+    89.405,
+    88.041,
+    62.247,
+    95.36,
+    99.25500000000001,
+    164.199,
+    34.062,
+    29.544,
+    46.802,
+    9.143,
+    31.716,
+    28.419,
+    29.813,
+    23.753,
+    7.979,
+    8.106,
+    7.969,
+    7.974,
+    5.764,
+    6.981999999999999,
+    6.141,
+    55.482,
+    175.49099999999999,
+    6.224,
+    7.977,
+    71.389,
+    7.329,
+    13.854,
+    12.548,
+    12.006,
+    48.23,
+    56.182,
+    89.42800000000001,
+    148.089,
+    27.426000000000002,
+    26.974,
+    29.129,
+    31.793,
+    31.662,
+    31.683,
+    29.398,
+    26.535999999999998,
+    26.012,
+    26.337,
+    28.308,
+    27.602,
+    27.625,
+    30.545,
+    25.595,
+    32.419,
+    27.274,
+    28.676,
+    28.628,
+    27.067,
+    32.075,
+    29.625999999999998,
+    38.914,
+    112.632,
+    234.193,
+    31.386,
+    83.05499999999999,
+    43.966,
+    43.07,
+    49.732,
+    44.975,
+    57.674,
+    96.438,
+    96.19999999999999,
+    129.11599999999999,
+    112.369,
+    92.994,
+    97.577,
+    97.632,
+    97.161,
+    109.58
+  ],
+  "status_codes": {
+    "200": 108,
+    "301": 1,
+    "206": 2,
+    "201": 1,
+    "204": 1
+  },
+  "content_types": {
+    "text/html; charset=UTF-8": 2,
+    "text/css; charset=UTF-8": 3,
+    "application/javascript; charset=UTF-8": 37,
+    "application/json": 13,
+    "text/javascript; charset=UTF-8": 2,
+    "image/svg+xml": 11,
+    "text/javascript": 13,
+    "application/octet-stream": 3,
+    "image/jpeg": 1,
+    "x-unknown": 2,
+    "video/mp4": 2,
+    "font/woff2": 3,
+    "text/plain; charset=UTF-8": 1,
+    "image/png": 1,
+    "text/html": 1,
+    "image/gif": 1,
+    "text/plain": 2,
+    "image/webp": 15
+  }
+}
