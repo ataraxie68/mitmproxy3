@@ -1,1 +1,3 @@
-playwright open --save-har=bechtle-tagging.har  --save-har-glob="**://tagging.bechtle.com/**"  https://www.bechtle.com
+playwright open   --save-har=bechtle-tagging.har  --save-har-glob="**://tagging.bechtle.com/**" --target=python  https://www.bechtle.com
+
+playwright codegen --target=python --save-har=bechtle-tagging.har  --save-har-glob="**://tagging.bechtle.com/**"  https://www.bechtle.com

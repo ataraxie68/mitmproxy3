@@ -590,7 +590,21 @@ def run_browser_with_proxy():
             '--no-default-browser-check',
             '--no-pings',
             '--no-sandbox',
-            '--disable-infobars'
+            '--disable-infobars',
+            '--hide-crash-restore-bubble',
+            '--disable-background-mode',
+            '--disable-restore-session-state',
+            '--disable-features=TranslateUI',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-extensions',
+            '--disable-component-update',
+            '--disable-client-side-phishing-detection',
+            '--disable-hang-monitor',
+            '--disable-popup-blocking',
+            '--disable-prompt-on-repost',
+            '--kiosk',
+            '--window-size=1200,1000',
+            '--window-position=100,100'
         ]
         
         # Add certificate if available
@@ -614,7 +628,7 @@ def run_browser_with_proxy():
             # Use goto() with file:// URL so relative paths work for CSS/JS
             file_url = f"file://{os.path.abspath(overlay_path)}"
             overlay_page.goto(file_url)
-            overlay_page.set_viewport_size({"width": 900, "height": 700})
+            overlay_page.set_viewport_size({"width": 1000, "height": 900})
         except Exception as e:
             print(f"❌ Could not load overlay HTML: {e}", flush=True)
 

@@ -16,14 +16,20 @@
         <div style="display: flex; align-items: center;">
             <div class="title">🎯 Pixel Logger</div>
             <div id="consentIndicator" class="consent-dot unknown" title="Consent Status: Unknown"></div>
-            <input id="filterInput" type="text" placeholder="Filter events..." class="filter-input" />
-            <button class="button-common theme-toggle" id="themeToggle">🌙 Dark</button>
+            <div class="input-wrapper">
+                <input id="filterInput" type="text" placeholder="Filter & hide events..." class="filter-input" />
+                <button class="clear-input-btn" id="clearFilterBtn" title="Clear filter">×</button>
+            </div>
+            <div class="input-wrapper">
+                <input id="platformFilterInput" type="text" placeholder="Search & highlight platforms..." class="filter-input" />
+                <button class="clear-input-btn" id="clearPlatformFilterBtn" title="Clear search">×</button>
+            </div>
+            <button class="button-common search-nav-btn" id="prevSearchBtn" title="Previous Search Result">◀</button>
+            <button class="button-common search-nav-btn" id="nextSearchBtn" title="Next Search Result">▶</button>
             <button class="button-common toggle-details-btn" id="toggleDetailsBtn">Expand All</button>
             <button class="button-common toggle-details-btn" id="clearOutputBtn">Clear Output</button>
             <button class="button-common nav-btn" id="prevPageBtn" title="Previous Page">◀</button>
             <button class="button-common nav-btn" id="nextPageBtn" title="Next Page">▶</button>
-            <button class="button-common font-size-btn" id="decreaseFontBtn" title="Decrease Font Size">A-</button>
-            <button class="button-common font-size-btn" id="increaseFontBtn" title="Increase Font Size">A+</button>
             <button class="button-common settings-toggle" id="settingsToggle">⚙️ Settings</button>
         </div>
         <div class="status" id="status">Connecting...</div>
@@ -70,6 +76,23 @@
                         <span class="icon">🔍</span>
                         <span class="name">Search All Content</span>
                     </label>
+                </div>
+            </div>
+            
+            <div class="platform-section">
+                <div class="section-title">UI Preferences</div>
+                <div class="ui-controls">
+                    <div class="ui-control-group">
+                        <label class="ui-control-label">Theme</label>
+                        <button class="ui-control-btn theme-toggle" id="themeToggle">🌙 Dark</button>
+                    </div>
+                    <div class="ui-control-group">
+                        <label class="ui-control-label">Font Size</label>
+                        <div class="font-size-controls">
+                            <button class="ui-control-btn font-size-btn" id="decreaseFontBtn" title="Decrease Font Size">A-</button>
+                            <button class="ui-control-btn font-size-btn" id="increaseFontBtn" title="Increase Font Size">A+</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -211,11 +234,14 @@
             </div>
         </div>
     </div>
-    <div class="content" id="content">
-        <div class="empty-state">
-            <div class="empty-icon">📊</div>
-            <div>Waiting for GA4 and marketing pixel events...</div>
-            <div class="empty-state-text-small">Events from GA4 and marketing pixel events will appear here</div>
+    
+    <div class="content" id="content">        
+        <div class="content-messages" id="contentMessages">
+            <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <div>Waiting for GA4 and marketing pixel events...</div>
+                <div class="empty-state-text-small">Events from GA4 and marketing pixel events will appear here</div>
+            </div>
         </div>
     </div>
     <div class="resize-handle"></div>

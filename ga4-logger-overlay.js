@@ -13,9 +13,48 @@ let settings = {
     platformVisibility: {}
 };
 
+// ===== SEARCH NAVIGATION STATE =====
+let searchResults = [];
+let currentSearchIndex = -1;
+let lastSearchText = '';
+let lastPlatformSearchText = '';
+
+// ===== CURRENT PAGE STATE =====
+// Removed URL display logic
+
+// Debug function - can be called from console
+window.debugSearchNavigation = function() {
+    console.log('=== Search Navigation Debug ===');
+    console.log('searchResults:', searchResults);
+    console.log('currentSearchIndex:', currentSearchIndex);
+    console.log('lastSearchText:', lastSearchText);
+    console.log('lastPlatformSearchText:', lastPlatformSearchText);
+    console.log('DOM.content:', DOM.content);
+    console.log('Search buttons:', {
+        prev: DOM.prevSearchBtn,
+        next: DOM.nextSearchBtn
+    });
+    
+    if (searchResults.length > 0 && currentSearchIndex >= 0) {
+        const currentElement = searchResults[currentSearchIndex].element;
+        const detailsElement = currentElement.querySelector('.message-details');
+        console.log('Current search element:', currentElement);
+        console.log('Element rect:', currentElement.getBoundingClientRect());
+        console.log('Container rect:', DOM.content.getBoundingClientRect());
+        console.log('Has details:', !!detailsElement);
+        if (detailsElement) {
+            console.log('Details display:', detailsElement.style.display);
+            console.log('Details visible:', detailsElement.style.display === 'block');
+        }
+    }
+};
+
+// Debug function for page tracking - removed
+
 // ===== DOM ELEMENTS =====
 const DOM = {
     content: document.getElementById('content'),
+    contentMessages: document.getElementById('contentMessages'),
     status: document.getElementById('status'),
     toggleDetailsBtn: document.getElementById('toggleDetailsBtn'),
     showServerCookiesToggle: document.getElementById('showServerCookiesToggle'),
@@ -26,12 +65,19 @@ const DOM = {
     searchAllContentToggle: document.getElementById('searchAllContentToggle'),
     prevPageBtn: document.getElementById('prevPageBtn'),
     nextPageBtn: document.getElementById('nextPageBtn'),
+    prevSearchBtn: document.getElementById('prevSearchBtn'),
+    nextSearchBtn: document.getElementById('nextSearchBtn'),
     increaseFontBtn: document.getElementById('increaseFontBtn'),
     decreaseFontBtn: document.getElementById('decreaseFontBtn'),
     settingsToggle: document.getElementById('settingsToggle'),
     settingsDropdown: document.getElementById('settingsDropdown'),
     panelClose: document.getElementById('panelClose'),
-    themeToggle: document.getElementById('themeToggle')
+    themeToggle: document.getElementById('themeToggle'),
+
+    filterInput: document.getElementById('filterInput'),
+    platformFilterInput: document.getElementById('platformFilterInput'),
+    clearFilterBtn: document.getElementById('clearFilterBtn'),
+    clearPlatformFilterBtn: document.getElementById('clearPlatformFilterBtn')
 };
 
 // ===== CONFIGURATION =====
@@ -1337,6 +1383,8 @@ const messageHandlers = {
         const toDisplay = getDisplayUrl(toUrl);
 
         const summary = `${navigationIcon} <b>SPA Navigation</b> - ${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
+        
+        // URL display logic removed
 
         const details = [
             'SPA Page View:',
@@ -1372,6 +1420,8 @@ const messageHandlers = {
                 hasRawData: !!(logEntry.metadata && logEntry.metadata.raw_data)
             });
         }
+
+        // URL display logic removed
 
         const details = prettyPrintDetailsFlat(data, logEntry.metadata, false, data.platform);
         renderMessage(summary, data.platform, icon, true, false, details);
@@ -1475,6 +1525,8 @@ const messageHandlers = {
         // Enhanced formatting with domain highlighting
         const summary = `<span style="font-size: 1.1em; font-weight: 800;">🚀 PAGE NAVIGATION</span><br>
                         <span style="color: #3b82f6; font-weight: 600;">${domain}</span><span style="color: #6b7280;">${path}</span>`;
+        
+        // URL display logic removed
 
         const details = formatUrlChangeDetails(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
 
@@ -1567,7 +1619,7 @@ function findTargetMessage(messages, data) {
 }
 
 function updateRequestStatus(data) {
-    const messages = DOM.content.querySelectorAll('.message');
+    const messages = DOM.contentMessages.querySelectorAll('.message');
     const targetMessage = findTargetMessage(messages, data);
 
     if (!targetMessage) return;
@@ -1735,7 +1787,7 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
     const shouldShow = isUrlChange || (typeVisible && textMatch);
     msg.style.display = shouldShow ? 'block' : 'none';
 
-    DOM.content.appendChild(msg);
+    DOM.contentMessages.appendChild(msg);
     if (shouldShow && !userInteracting) {
         msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -1743,7 +1795,12 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
 
 
 function attachExpandHandler(msg) {
-    msg.addEventListener('click', function () {
+    msg.addEventListener('click', function (e) {
+        // Don't close if clicking on the details content (allows text selection)
+        if (e.target.closest('.message-details')) {
+            return;
+        }
+        
         const details = this.querySelector('.message-details');
         if (details) {
             const isHidden = details.style.display === 'none' || details.style.display === '';
@@ -1754,7 +1811,7 @@ function attachExpandHandler(msg) {
 
 // ===== NAVIGATION & PAGINATION =====
 function getVisiblePageSeparators() {
-    return Array.from(DOM.content.querySelectorAll('.page-separator'));
+    return Array.from(DOM.contentMessages.querySelectorAll('.page-separator'));
 }
 
 function updateNavigationButtons() {
@@ -1772,8 +1829,8 @@ function scrollToPage(index) {
 
 function findCurrentPage() {
     const separators = getVisiblePageSeparators();
-    const containerTop = DOM.content.scrollTop;
-    const containerHeight = DOM.content.clientHeight;
+    const containerTop = DOM.contentMessages.scrollTop;
+    const containerHeight = DOM.contentMessages.clientHeight;
     const viewportCenter = containerTop + containerHeight / 2;
 
     for (let i = separators.length - 1; i >= 0; i--) {
@@ -1783,6 +1840,11 @@ function findCurrentPage() {
     }
     return 0;
 }
+
+// ===== CURRENT PAGE UTILITIES =====
+// URL display logic removed
+
+// URL display functions removed
 
 // ===== PLATFORM UTILITIES =====
 function forEachPlatformCheckbox(operation) {
@@ -1848,7 +1910,8 @@ function toggleSettings() {
 // ===== FILTERING =====
 function applyFilter() {
     const filterText = document.getElementById('filterInput')?.value.toLowerCase() || '';
-    const messages = DOM.content.querySelectorAll('.message');
+    const platformSearchText = document.getElementById('platformFilterInput')?.value.toLowerCase() || '';
+    const messages = DOM.contentMessages.querySelectorAll('.message');
 
     messages.forEach(msg => {
         const messageType = msg.getAttribute('data-type');
@@ -1868,12 +1931,420 @@ function applyFilter() {
         const typeVisible = checkMessageVisibility(messageType);
         const textMatch = !filterText || messageText.includes(filterText);
 
-        // Show if it's a URL change, OR if it's a visible type that matches the text filter.
+        // Show if it's a URL change, OR if it's a visible type that matches the content filter.
+        // Platform search doesn't affect visibility, only highlighting.
         const shouldShow = isUrlChange || (typeVisible && textMatch);
         msg.style.display = shouldShow ? 'block' : 'none';
+        
+        // Apply content search highlighting if there's a filter text
+        if (filterText && shouldShow) {
+            highlightSearchText(msg, filterText);
+        } else {
+            removeSearchHighlighting(msg);
+        }
+        
+        // Apply platform search highlighting (works on all visible messages)
+        if (platformSearchText && shouldShow) {
+            highlightPlatformText(msg, platformSearchText);
+        } else {
+            removePlatformHighlighting(msg);
+        }
     });
 
     updateNavigationButtons();
+    
+    // Update search navigation
+    findSearchResults();
+}
+
+// ===== SEARCH HIGHLIGHTING =====
+function highlightSearchText(messageElement, searchText) {
+    // Remove existing highlights first
+    removeSearchHighlighting(messageElement);
+    
+    if (!searchText) return;
+    
+    // Highlight in message text
+    const messageTextEl = messageElement.querySelector('.message-text');
+    if (messageTextEl) {
+        highlightTextInElement(messageTextEl, searchText);
+    }
+    
+    // Highlight in details if search all content is enabled
+    if (settings.searchAllContent) {
+        const detailsEl = messageElement.querySelector('.message-details');
+        if (detailsEl) {
+            highlightTextInElement(detailsEl, searchText);
+        }
+    }
+}
+
+function highlightTextInElement(element, searchText) {
+    const walker = document.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+    
+    const textNodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+        textNodes.push(node);
+    }
+    
+    textNodes.forEach(textNode => {
+        const text = textNode.textContent;
+        const lowerText = text.toLowerCase();
+        const searchIndex = lowerText.indexOf(searchText.toLowerCase());
+        
+        if (searchIndex !== -1) {
+            const beforeText = text.substring(0, searchIndex);
+            const matchText = text.substring(searchIndex, searchIndex + searchText.length);
+            const afterText = text.substring(searchIndex + searchText.length);
+            
+            const fragment = document.createDocumentFragment();
+            
+            if (beforeText) {
+                fragment.appendChild(document.createTextNode(beforeText));
+            }
+            
+            const highlightSpan = document.createElement('span');
+            highlightSpan.className = 'search-highlight';
+            highlightSpan.textContent = matchText;
+            fragment.appendChild(highlightSpan);
+            
+            if (afterText) {
+                fragment.appendChild(document.createTextNode(afterText));
+            }
+            
+            textNode.parentNode.replaceChild(fragment, textNode);
+        }
+    });
+}
+
+function removeSearchHighlighting(messageElement) {
+    // Remove existing search highlights
+    const highlights = messageElement.querySelectorAll('.search-highlight');
+    highlights.forEach(highlight => {
+        const parent = highlight.parentNode;
+        parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
+        parent.normalize(); // Merge adjacent text nodes
+    });
+}
+
+// ===== PLATFORM SEARCH HIGHLIGHTING =====
+function highlightPlatformText(messageElement, platformText) {
+    // Remove existing platform highlights first
+    removePlatformHighlighting(messageElement);
+    
+    if (!platformText) return;
+    
+    // Highlight platform names in message type attribute
+    const messageType = messageElement.getAttribute('data-type');
+    if (messageType && messageType.toLowerCase().includes(platformText.toLowerCase())) {
+        // Add a visual indicator to the message
+        messageElement.classList.add('platform-match');
+    }
+    
+    // Highlight platform names in the message content
+    const messageTextEl = messageElement.querySelector('.message-text');
+    if (messageTextEl) {
+        highlightPlatformInElement(messageTextEl, platformText);
+    }
+    
+    // Highlight platform names in details if search all content is enabled
+    if (settings.searchAllContent) {
+        const detailsEl = messageElement.querySelector('.message-details');
+        if (detailsEl) {
+            highlightPlatformInElement(detailsEl, platformText);
+        }
+    }
+}
+
+function highlightPlatformInElement(element, platformText) {
+    const walker = document.createTreeWalker(
+        element,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+    
+    const textNodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+        textNodes.push(node);
+    }
+    
+    textNodes.forEach(textNode => {
+        const text = textNode.textContent;
+        const lowerText = text.toLowerCase();
+        const searchIndex = lowerText.indexOf(platformText.toLowerCase());
+        
+        if (searchIndex !== -1) {
+            const beforeText = text.substring(0, searchIndex);
+            const matchText = text.substring(searchIndex, searchIndex + platformText.length);
+            const afterText = text.substring(searchIndex + platformText.length);
+            
+            const fragment = document.createDocumentFragment();
+            
+            if (beforeText) {
+                fragment.appendChild(document.createTextNode(beforeText));
+            }
+            
+            const highlightSpan = document.createElement('span');
+            highlightSpan.className = 'platform-highlight';
+            highlightSpan.textContent = matchText;
+            fragment.appendChild(highlightSpan);
+            
+            if (afterText) {
+                fragment.appendChild(document.createTextNode(afterText));
+            }
+            
+            textNode.parentNode.replaceChild(fragment, textNode);
+        }
+    });
+}
+
+function removePlatformHighlighting(messageElement) {
+    // Remove platform match class
+    messageElement.classList.remove('platform-match');
+    
+    // Remove existing platform highlights
+    const highlights = messageElement.querySelectorAll('.platform-highlight');
+    highlights.forEach(highlight => {
+        const parent = highlight.parentNode;
+        parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
+        parent.normalize(); // Merge adjacent text nodes
+    });
+}
+
+// ===== SEARCH NAVIGATION FUNCTIONS =====
+function findSearchResults() {
+    const filterText = document.getElementById('filterInput')?.value.toLowerCase() || '';
+    const platformSearchText = document.getElementById('platformFilterInput')?.value.toLowerCase() || '';
+    
+    console.log(`Finding search results: filterText="${filterText}", platformSearchText="${platformSearchText}"`);
+    
+    // Only update search results if search text changed
+    if (filterText !== lastSearchText || platformSearchText !== lastPlatformSearchText) {
+        searchResults = [];
+        currentSearchIndex = -1;
+        lastSearchText = filterText;
+        lastPlatformSearchText = platformSearchText;
+        
+        if (!filterText && !platformSearchText) {
+            clearSearchNavigation();
+            return;
+        }
+        
+        const messages = DOM.contentMessages.querySelectorAll('.message');
+        console.log(`Checking ${messages.length} messages for search matches`);
+        
+        messages.forEach((msg, msgIndex) => {
+            // Only check visible messages
+            if (msg.style.display === 'none') {
+                return;
+            }
+            
+            const messageText = msg.textContent.toLowerCase();
+            const messageType = msg.getAttribute('data-type')?.toLowerCase() || '';
+            let hasMatch = false;
+            let matchType = '';
+            
+            // Check content filter match (from left input)
+            if (filterText && messageText.includes(filterText)) {
+                hasMatch = true;
+                matchType = 'content';
+            }
+            
+            // Check platform search match (from right input)
+            if (platformSearchText && (messageText.includes(platformSearchText) || messageType.includes(platformSearchText))) {
+                hasMatch = true;
+                matchType = matchType ? 'both' : 'platform';
+            }
+            
+            if (hasMatch) {
+                searchResults.push({
+                    element: msg,
+                    index: msgIndex,
+                    type: matchType,
+                    text: messageText.substring(0, 100) // For debugging
+                });
+                console.log(`Found match #${searchResults.length}: type=${matchType}, msgIndex=${msgIndex}`);
+            }
+        });
+        
+        console.log(`Total search results found: ${searchResults.length}`);
+        
+        // Auto-select first result if we have results
+        if (searchResults.length > 0) {
+            currentSearchIndex = 0;
+            searchResults[0].element.classList.add('current-search-result');
+            // Use a slight delay to ensure DOM is ready
+            setTimeout(() => {
+                scrollToSearchResult(searchResults[0].element);
+            }, 50);
+        }
+    }
+    
+    updateSearchNavigationButtons();
+}
+
+function updateSearchNavigationButtons() {
+    if (!DOM.prevSearchBtn || !DOM.nextSearchBtn) {
+        console.warn('Search navigation buttons not found in DOM');
+        return;
+    }
+    
+    if (searchResults.length === 0) {
+        DOM.prevSearchBtn.disabled = true;
+        DOM.nextSearchBtn.disabled = true;
+        DOM.prevSearchBtn.classList.remove('active');
+        DOM.nextSearchBtn.classList.remove('active');
+        console.log('Search navigation buttons disabled - no results');
+        return;
+    }
+    
+    DOM.prevSearchBtn.disabled = false;
+    DOM.nextSearchBtn.disabled = false;
+    
+    if (currentSearchIndex >= 0) {
+        DOM.prevSearchBtn.classList.add('active');
+        DOM.nextSearchBtn.classList.add('active');
+        console.log(`Search navigation buttons active - ${currentSearchIndex + 1}/${searchResults.length}`);
+    } else {
+        DOM.prevSearchBtn.classList.remove('active');
+        DOM.nextSearchBtn.classList.remove('active');
+        console.log('Search navigation buttons ready - no current selection');
+    }
+}
+
+function navigateToSearchResult(direction) {
+    console.log(`Navigating ${direction}, searchResults.length: ${searchResults.length}`);
+    
+    if (searchResults.length === 0) {
+        console.log('No search results to navigate');
+        return;
+    }
+    
+    // Remove previous highlight
+    if (currentSearchIndex >= 0 && currentSearchIndex < searchResults.length) {
+        const prevResult = searchResults[currentSearchIndex];
+        prevResult.element.classList.remove('current-search-result');
+    }
+    
+    if (direction === 'next') {
+        currentSearchIndex = currentSearchIndex >= searchResults.length - 1 ? 0 : currentSearchIndex + 1;
+    } else {
+        currentSearchIndex = currentSearchIndex <= 0 ? searchResults.length - 1 : currentSearchIndex - 1;
+    }
+    
+    console.log(`Current search index: ${currentSearchIndex}`);
+    
+    // Highlight current result
+    const currentResult = searchResults[currentSearchIndex];
+    currentResult.element.classList.add('current-search-result');
+    
+    // Check if the current result has collapsed details and expand them for better visibility
+    const detailsElement = currentResult.element.querySelector('.message-details');
+    if (detailsElement && (detailsElement.style.display === 'none' || detailsElement.style.display === '')) {
+        console.log('Expanding details for better search result visibility');
+        detailsElement.style.display = 'block';
+        
+        // Scroll after a brief delay to allow for expansion
+        setTimeout(() => {
+            scrollToSearchResult(currentResult.element);
+        }, 100);
+    } else {
+        // Enhanced scrolling logic
+        scrollToSearchResult(currentResult.element);
+    }
+    
+    updateSearchNavigationButtons();
+}
+
+function scrollToSearchResult(element) {
+    const contentContainer = DOM.contentMessages;
+    
+    if (!contentContainer || !element) {
+        console.warn('Content container or element not found for scrolling');
+        return;
+    }
+    
+    try {
+        // Enhanced scrolling that handles expanded details
+        const scrollToElement = () => {
+            // Get the current scroll position and container info
+            const containerRect = contentContainer.getBoundingClientRect();
+            const elementRect = element.getBoundingClientRect();
+            
+            console.log('Container rect:', containerRect);
+            console.log('Element rect:', elementRect);
+            
+            // Check if element is already fully visible
+            const elementTop = elementRect.top - containerRect.top;
+            const elementBottom = elementRect.bottom - containerRect.top;
+            const containerHeight = containerRect.height;
+            
+            const isFullyVisible = elementTop >= 0 && elementBottom <= containerHeight;
+            
+            if (!isFullyVisible) {
+                // Calculate the scroll position to center the element
+                // We need to find the element's position relative to the content container's scroll
+                const currentScrollTop = contentContainer.scrollTop;
+                const elementOffsetFromTop = elementRect.top - containerRect.top;
+                const targetScrollTop = currentScrollTop + elementOffsetFromTop - (containerHeight / 2) + (elementRect.height / 2);
+                
+                console.log(`Scrolling: currentScrollTop=${currentScrollTop}, elementOffsetFromTop=${elementOffsetFromTop}, targetScrollTop=${targetScrollTop}`);
+                
+                contentContainer.scrollTo({
+                    top: Math.max(0, targetScrollTop),
+                    behavior: 'smooth'
+                });
+            } else {
+                console.log('Element is already fully visible');
+            }
+        };
+        
+        // Try immediate scroll first
+        scrollToElement();
+        
+        // If the element has details that might be expanding, wait and try again
+        const hasDetails = element.querySelector('.message-details');
+        if (hasDetails) {
+            // Wait for any animations or expansions to complete
+            setTimeout(() => {
+                scrollToElement();
+            }, 300);
+        }
+        
+    } catch (error) {
+        console.error('Error scrolling to search result:', error);
+        // Final fallback - use native scrollIntoView
+        try {
+            element.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center',
+                inline: 'nearest'
+            });
+        } catch (fallbackError) {
+            console.error('Fallback scrolling also failed:', fallbackError);
+        }
+    }
+}
+
+function clearSearchNavigation() {
+    // Remove all current search result highlights
+    document.querySelectorAll('.current-search-result').forEach(el => {
+        el.classList.remove('current-search-result');
+    });
+    
+    searchResults = [];
+    currentSearchIndex = -1;
+    lastSearchText = '';
+    lastPlatformSearchText = '';
+    updateSearchNavigationButtons();
 }
 
 // ===== UNIFIED VISIBILITY LOGIC =====
@@ -1959,7 +2430,7 @@ function connect() {
 }
 
 function addMessage(message, type = 'info') {
-    const emptyState = DOM.content.querySelector('.empty-state');
+    const emptyState = DOM.contentMessages.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
 
     if (message.startsWith('[STRUCTURED] ')) {
@@ -1999,7 +2470,7 @@ function initializeEventListeners() {
     // Details toggle
     DOM.toggleDetailsBtn?.addEventListener('click', () => {
         allExpanded = !allExpanded;
-        DOM.content.querySelectorAll('.message-details').forEach(details => {
+        DOM.contentMessages.querySelectorAll('.message-details').forEach(details => {
             details.style.display = allExpanded ? 'block' : 'none';
         });
         DOM.toggleDetailsBtn.textContent = allExpanded ? 'Collapse All' : 'Expand All';
@@ -2007,12 +2478,13 @@ function initializeEventListeners() {
 
     // Clear output
     document.getElementById('clearOutputBtn')?.addEventListener('click', () => {
-        DOM.content.innerHTML = `<div class="empty-state">
+        DOM.contentMessages.innerHTML = `<div class="empty-state">
             <div class="empty-icon">📊</div>
             <div>Waiting for GA4 and marketing pixel events...</div>
             <div class="empty-state-description">Events from GA4, Facebook, TikTok, Snapchat, Pinterest, LinkedIn, Twitter/X, Microsoft, Amazon, Criteo, Reddit, Quora, Outbrain, Taboola, sGTM, Adobe Analytics, Segment, Mixpanel, URL changes, and Custom Tracking will appear here</div>
         </div>`;
-        // Recreate consent header after clearing
+        // Clear current page info and recreate consent header after clearing
+        // URL display logic removed
         updateConsentStatusHeader();
     });
 
@@ -2056,7 +2528,9 @@ function initializeEventListeners() {
         if (currentPage < separators.length - 1) scrollToPage(currentPage + 1);
     });
 
-    DOM.content?.addEventListener('scroll', updateNavigationButtons);
+    DOM.contentMessages?.addEventListener('scroll', () => {
+        updateNavigationButtons();
+    });
 
     // Settings panel
     DOM.settingsToggle?.addEventListener('click', (e) => {
@@ -2080,6 +2554,16 @@ function initializeEventListeners() {
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeSettings();
+        
+        // Search navigation shortcuts
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            if (e.shiftKey) {
+                navigateToSearchResult('prev');
+            } else {
+                navigateToSearchResult('next');
+            }
+        }
     });
 
     // Settings buttons with unified platform operations
@@ -2110,8 +2594,47 @@ function initializeEventListeners() {
         closeSettings();
     });
 
-    // Filter input
-    document.getElementById('filterInput')?.addEventListener('input', applyFilter);
+    // Filter inputs
+    DOM.filterInput?.addEventListener('input', applyFilter);
+    DOM.platformFilterInput?.addEventListener('input', applyFilter);
+    
+    // Clear button event listeners
+    DOM.clearFilterBtn?.addEventListener('click', () => {
+        if (DOM.filterInput) {
+            DOM.filterInput.value = '';
+            DOM.filterInput.focus();
+            applyFilter();
+        }
+    });
+    
+    DOM.clearPlatformFilterBtn?.addEventListener('click', () => {
+        if (DOM.platformFilterInput) {
+            DOM.platformFilterInput.value = '';
+            DOM.platformFilterInput.focus();
+            applyFilter();
+        }
+    });
+    
+    // Search navigation
+    if (DOM.prevSearchBtn) {
+        DOM.prevSearchBtn.addEventListener('click', () => {
+            console.log('Previous search button clicked');
+            navigateToSearchResult('prev');
+        });
+        console.log('Previous search button event listener attached');
+    } else {
+        console.warn('Previous search button not found');
+    }
+    
+    if (DOM.nextSearchBtn) {
+        DOM.nextSearchBtn.addEventListener('click', () => {
+            console.log('Next search button clicked');
+            navigateToSearchResult('next');
+        });
+        console.log('Next search button event listener attached');
+    } else {
+        console.warn('Next search button not found');
+    }
 }
 
 // ===== USER INTERACTION TRACKING =====
@@ -2162,6 +2685,9 @@ async function init() {
     applyFilter(); // Apply default filter settings
 
     updateConsentStatusHeader(); // Initialize consent status header
+    
+    // Initialize search navigation
+    updateSearchNavigationButtons();
 
     connect();
 }
