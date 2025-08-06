@@ -656,7 +656,7 @@ class EventFormatter {
                 
                 const items = entries.map(([key, value]) => {
                     const formattedValue = formatWithoutKeyQuotes(value, currentIndent + indent);
-                    return `${nextIndentStr}${key}: ${formattedValue}`;
+                    return `${nextIndentStr}<span class="parameter-key">${key}</span>: ${formattedValue}`;
                 });
                 
                 return '{\n' + items.join(',\n') + '\n' + indentStr + '}';
@@ -689,11 +689,6 @@ class EventFormatter {
         if (showRawData && metadata?.raw_data) {
             const cleanedData = this.cleanRawData(metadata.raw_data);
             let rawSection = `📋 Raw Data:\n${this.formatObject(cleanedData, 2)}`;
-
-            // Apply GA4 parameter highlighting if needed
-            if (platform && this.isGA4Platform(platform)) {
-                rawSection = this.applyParameterHighlighting(rawSection, platform);
-            }
 
             sections.push(rawSection);
         }
@@ -751,12 +746,32 @@ class EventFormatter {
 
         const lines = text.split('\n');
         const processedLines = lines.map(line => {
-            // Handle JSON-formatted lines with quotes and commas
+            // Handle our new format with <span class="parameter-key"> tags
+            const newFormatMatch = line.match(/^\s*<span class="parameter-key">([^<]+)<\/span>:\s*(.+?)(,?)$/);
+            if (newFormatMatch) {
+                const paramName = newFormatMatch[1].trim();
+                const paramValue = newFormatMatch[2].trim();
+                const hasComma = newFormatMatch[3] === ',';
+
+                // Check GA4 parameter length limits
+                const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
+                if (lengthCheck) {
+                    const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
+                    const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
+                    return `  <span class="parameter-key">${paramName}</span>: ${paramValue}${hasComma ? ',' : ''}${warningText}`;
+                }
+
+                // Apply universal parameter highlighting
+                const highlighted = this.highlightImportantParams(paramName, paramValue);
+                if (highlighted !== paramValue) {
+                    return `  <span class="parameter-key">${paramName}</span>: ${highlighted}${hasComma ? ',' : ''}`;
+                }
+                return line; // Keep the line as is if no highlighting needed
+            }
+
+            // Handle old JSON-formatted lines with quotes and commas (fallback)
             const jsonMatch = line.match(/^\s*"([^"]+)":\s*"([^"]*)"(,?)$/);
             const jsonMatch2 = line.match(/^\s*"([^"]+)":\s*"([^"]+)"(,?)$/);
-            console.log(`Line: "${line}"`);
-            console.log(`JSON match (empty):`, jsonMatch);
-            console.log(`JSON match (non-empty):`, jsonMatch2);
 
             // Try both patterns
             const match = jsonMatch || jsonMatch2;
@@ -765,12 +780,9 @@ class EventFormatter {
                 const paramValue = match[2].trim();
                 const hasComma = match[3] === ',';
 
-                console.log(`Processing JSON parameter: ${paramName} = "${paramValue}"`);
-
                 // Check GA4 parameter length limits
                 const lengthCheck = checkGA4ParameterLength(paramName, paramValue, platform);
                 if (lengthCheck) {
-                    console.log(`Length violation found for ${paramName}: ${lengthCheck.current}/${lengthCheck.limit}`);
                     const cssClass = lengthCheck.severity === 'error' ? 'param-error' : 'param-warning';
                     const warningText = ` <span class="${cssClass}">${lengthCheck.current}/${lengthCheck.limit} chars (+${lengthCheck.excess})</span>`;
                     return `  "${paramName}": "${paramValue}"${hasComma ? ',' : ''}${warningText}`;
@@ -1513,7 +1525,7 @@ const messageHandlers = {
         const fromDisplay = getDisplayUrl(fromUrl);
         const toDisplay = getDisplayUrl(toUrl);
 
-        const summary = `${navigationIcon} <b>SPA Navigation</b> - ${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
+        const summary = `<b>SPA Navigation</b><br>${navTypeDisplay}: <code>${fromDisplay}</code> → <code>${toDisplay}</code>`;
         
         // URL display logic removed
 
@@ -1586,7 +1598,7 @@ const messageHandlers = {
         // event unknown
         const summary = event === 'unknown' ? 'DataLayer Object - expand for details' : `DataLayer Event: <b>${event}</b>`;;
 
-        const details = formatDataLayerAsJSON(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
+        const details = formatDataLayerAsJSON(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata, data, data.platform)}` : '');
         renderMessage(summary, 'DataLayer', icon, false, false, details);
     },
 
@@ -1596,7 +1608,7 @@ const messageHandlers = {
 
         // Handle other consent events
         const summary = `Consent <b>${event}</b>`;
-        const details = JSON.stringify(data, null, 2);
+        const details = EventFormatter.formatObject(data, 2);
         renderMessage(summary, 'consent', icon, false, false, details);
 
     },
@@ -1654,12 +1666,12 @@ const messageHandlers = {
         const path = new URL(newUrl).pathname + new URL(newUrl).search;
 
         // Enhanced formatting with domain highlighting
-        const summary = `<span style="font-size: 1.1em; font-weight: 800;">🚀 PAGE NAVIGATION</span><br>
+        const summary = `<span style="font-size: 1.1em; font-weight: 800;">PAGE NAVIGATION</span><br>
                         <span style="color: #3b82f6; font-weight: 600;">${domain}</span><span style="color: #6b7280;">${path}</span>`;
         
         // URL display logic removed
 
-        const details = formatUrlChangeDetails(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata)}` : '');
+        const details = formatUrlChangeDetails(data) + (logEntry.metadata ? `\n\nMetadata:\n${prettyPrintDetailsRaw(logEntry.metadata, data, data.platform)}` : '');
 
         // URL changes appear in chronological order but with special separator styling
         renderMessage(summary, 'url_change', icon, true, true, details, 'url-change-separator');
@@ -1683,14 +1695,14 @@ function handleStructuredLog(logEntry) {
             // Fallback to generic handler
             const icon = '❌';
             const summary = `Error processing ${type}`;
-            const details = `Error: ${error.message}\n\nOriginal data:\n${JSON.stringify(logEntry, null, 2)}`;
+            const details = `Error: ${error.message}\n\nOriginal data:\n${EventFormatter.formatObject(logEntry, 2)}`;
             renderMessage(summary, 'error', icon, false, false, details);
         }
     } else {
         // Generic handler for unknown types
         const icon = CONFIG.typeIconMap[type] || CONFIG.typeIconMap.info;
         const summary = `${type}: ${event}`;
-        const details = prettyPrintDetailsRaw(logEntry.metadata, data);
+        const details = prettyPrintDetailsRaw(logEntry.metadata, data, data.platform);
         renderMessage(summary, type, icon, false, false, details);
     }
 }
