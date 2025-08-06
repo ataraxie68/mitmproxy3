@@ -578,7 +578,7 @@ def run_browser_with_proxy():
             '--disable-dev-shm-usage',
             '--disable-extensions',
             '--disable-plugins',
-            '--disable-default-apps',
+            # '--disable-default-apps',
             '--disable-sync',
             '--disable-translate',
             '--disable-background-timer-throttling',
@@ -602,8 +602,8 @@ def run_browser_with_proxy():
             '--disable-hang-monitor',
             '--disable-popup-blocking',
             '--disable-prompt-on-repost',
-            '--kiosk',
-            '--window-size=1200,1000',
+            # '--kiosk',
+            # '--window-size=1200,1000',
             '--window-position=100,100'
         ]
         

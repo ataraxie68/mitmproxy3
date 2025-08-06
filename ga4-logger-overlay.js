@@ -1,5 +1,5 @@
 // ===== GLOBAL STATE =====
-let ws, reconnectAttempts = 0, allExpanded;
+let ws, reconnectAttempts = 0, allExpanded = true; // Initialize to true by default
 let currentFontSize, currentHeaderFontSize, currentButtonFontSize;
 let userInteracting = false;
 let interactionTimeout = null;
@@ -228,7 +228,10 @@ async function loadConfig() {
         currentFontSize = defaults.fontSize || 14;
         currentHeaderFontSize = defaults.headerFontSize || 15;
         currentButtonFontSize = defaults.buttonFontSize || 9;
-        allExpanded = defaults.allExpanded || false;
+        if (defaults.allExpanded !== undefined) {
+            allExpanded = defaults.allExpanded;
+        }
+        // allExpanded is already initialized to true at the top of the file
 
         // Initialize settings from config defaults
         settings.showServerCookies = defaults.showServerCookies || false;
@@ -252,7 +255,7 @@ async function loadConfig() {
         currentFontSize = 14;
         currentHeaderFontSize = 15;
         currentButtonFontSize = 9;
-        allExpanded = false;
+        // allExpanded is already initialized to true at the top of the file
         settings.showServerCookies = false;
         settings.showClientCookies = false;
         settings.showDataLayer = true;
@@ -1897,7 +1900,7 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
             <div class="message-icon">${icon}</div>
             <div class="message-text" style="${weightClass}">${message}</div>
         </div>
-        <div class="message-details" style="display: none;">${detailsWithTimestamp}</div>
+        <div class="message-details" style="display: ${allExpanded ? 'block' : 'none'};">${detailsWithTimestamp}</div>
     `;
 
     if (pageClass) msg.classList.add(pageClass);
@@ -2611,6 +2614,11 @@ function initializeEventListeners() {
         });
         DOM.toggleDetailsBtn.textContent = allExpanded ? 'Collapse All' : 'Expand All';
     });
+    
+    // Set initial button text
+    if (DOM.toggleDetailsBtn) {
+        DOM.toggleDetailsBtn.textContent = allExpanded ? 'Collapse All' : 'Expand All';
+    }
 
     // Clear output
     document.getElementById('clearOutputBtn')?.addEventListener('click', () => {

@@ -13,26 +13,41 @@
 
 <body>
     <div class="header">
-        <div style="display: flex; align-items: center;">
+        <div class="header-left">
             <div class="title">🎯 Pixel Logger</div>
             <div id="consentIndicator" class="consent-dot unknown" title="Consent Status: Unknown"></div>
-            <div class="input-wrapper">
-                <input id="filterInput" type="text" placeholder="Filter & hide events..." class="filter-input" />
-                <button class="clear-input-btn" id="clearFilterBtn" title="Clear filter">×</button>
-            </div>
-            <div class="input-wrapper">
-                <input id="platformFilterInput" type="text" placeholder="Search & highlight platforms..." class="filter-input" />
-                <button class="clear-input-btn" id="clearPlatformFilterBtn" title="Clear search">×</button>
-            </div>
-            <button class="button-common search-nav-btn" id="prevSearchBtn" title="Previous Search Result">◀</button>
-            <button class="button-common search-nav-btn" id="nextSearchBtn" title="Next Search Result">▶</button>
-            <button class="button-common toggle-details-btn" id="toggleDetailsBtn">Expand All</button>
-            <button class="button-common toggle-details-btn" id="clearOutputBtn">Clear Output</button>
-            <button class="button-common nav-btn" id="prevPageBtn" title="Previous Page">◀</button>
-            <button class="button-common nav-btn" id="nextPageBtn" title="Next Page">▶</button>
-            <button class="button-common settings-toggle" id="settingsToggle">⚙️ Settings</button>
         </div>
-        <div class="status" id="status">Connecting...</div>
+        
+        <div class="header-center">
+            <div class="control-group filters">
+                <div class="input-wrapper">
+                    <input id="filterInput" type="text" placeholder="Filter & hide events..." class="filter-input" />
+                    <button class="clear-input-btn" id="clearFilterBtn" title="Clear filter">×</button>
+                </div>
+                <div class="input-wrapper">
+                    <input id="platformFilterInput" type="text" placeholder="Search & highlight platforms..." class="filter-input" />
+                    <button class="clear-input-btn" id="clearPlatformFilterBtn" title="Clear search">×</button>
+                </div>
+            </div>
+            
+            <div class="control-group navigation">
+                <button class="button-common search-nav-btn" id="prevSearchBtn" title="Previous Search Result">◀</button>
+                <button class="button-common search-nav-btn" id="nextSearchBtn" title="Next Search Result">▶</button>
+                <div class="separator"></div>
+                <button class="button-common nav-btn" id="prevPageBtn" title="Previous Page">◀</button>
+                <button class="button-common nav-btn" id="nextPageBtn" title="Next Page">▶</button>
+            </div>
+            
+            <div class="control-group actions">
+                <button class="button-common toggle-details-btn" id="toggleDetailsBtn">Expand All</button>
+                <button class="button-common clear-btn" id="clearOutputBtn">Clear Output</button>
+            </div>
+        </div>
+        
+        <div class="header-right">
+            <button class="button-common settings-toggle" id="settingsToggle">⚙️ Settings</button>
+            <div class="status" id="status">Connecting...</div>
+        </div>
         
         <!-- Settings Dropdown Panel -->
         <div class="settings-dropdown" id="settingsDropdown">
