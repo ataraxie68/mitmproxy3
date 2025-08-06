@@ -19,6 +19,10 @@ let currentSearchIndex = -1;
 let lastSearchText = '';
 let lastPlatformSearchText = '';
 
+// ===== STICKY URL CHANGE STATE =====
+let currentStickyUrlMessage = null;
+let stickyScrollThrottle = null;
+
 // ===== CURRENT PAGE STATE =====
 // Removed URL display logic
 
@@ -50,6 +54,98 @@ window.debugSearchNavigation = function() {
 };
 
 // Debug function for page tracking - removed
+
+// ===== STICKY URL CHANGE FUNCTIONS =====
+function makeStickyUrlMessage(messageElement) {
+    // Remove sticky class from previous URL message
+    if (currentStickyUrlMessage && currentStickyUrlMessage !== messageElement) {
+        currentStickyUrlMessage.classList.remove('sticky');
+    }
+    
+    // Add sticky class to new URL message
+    messageElement.classList.add('sticky');
+    currentStickyUrlMessage = messageElement;
+}
+
+function removeStickyFromOldUrlMessages() {
+    // Find all URL change messages and remove sticky class from non-current ones
+    const urlMessages = DOM.contentMessages.querySelectorAll('.url-change-separator.sticky');
+    if (urlMessages.length > 1) {
+        // Keep only the last (most recent) URL message sticky
+        for (let i = 0; i < urlMessages.length - 1; i++) {
+            urlMessages[i].classList.remove('sticky');
+        }
+        currentStickyUrlMessage = urlMessages[urlMessages.length - 1];
+    }
+}
+
+function handleStickyUrlOnScroll() {
+    // This function manages sticky URL messages during scrolling
+    const containerRect = DOM.contentMessages.getBoundingClientRect();
+    const containerTop = containerRect.top;
+    const containerBottom = containerRect.bottom;
+    
+    // Get all messages (URL changes and requests)
+    const allMessages = Array.from(DOM.contentMessages.children);
+    const urlMessages = DOM.contentMessages.querySelectorAll('.url-change-separator');
+    
+    if (urlMessages.length === 0) return;
+    
+    // Find the URL that should be sticky based on visible requests
+    let urlToStick = null;
+    
+    // Strategy: Find the URL change that is responsible for the currently visible requests
+    // Look for the first visible request, then find the last URL change before it
+    const visibleRequests = allMessages.filter(msg => {
+        const rect = msg.getBoundingClientRect();
+        return rect.bottom > containerTop && rect.top < containerBottom && 
+               !msg.classList.contains('url-change-separator') &&
+               msg.style.display !== 'none';
+    });
+    
+    if (visibleRequests.length > 0) {
+        // Find the topmost visible request
+        const topRequest = visibleRequests[0];
+        const topRequestIndex = allMessages.indexOf(topRequest);
+        
+        // Find the URL change that applies to this request
+        // (the last URL change message before this request)
+        let lastUrlBefore = null;
+        for (let i = topRequestIndex - 1; i >= 0; i--) {
+            if (allMessages[i].classList.contains('url-change-separator')) {
+                lastUrlBefore = allMessages[i];
+                break;
+            }
+        }
+        
+        if (lastUrlBefore) {
+            urlToStick = lastUrlBefore;
+        } else {
+            // If no URL change before the request, use the first URL change
+            urlToStick = urlMessages[0];
+        }
+    } else {
+        // Fallback: use the topmost visible URL change message
+        for (const urlMsg of urlMessages) {
+            const rect = urlMsg.getBoundingClientRect();
+            
+            if (rect.bottom > containerTop && rect.top < containerBottom) {
+                if (rect.top <= containerTop + 20) { // 20px threshold for better UX
+                    urlToStick = urlMsg;
+                }
+            }
+        }
+    }
+    
+    // Update sticky state
+    if (urlToStick && urlToStick !== currentStickyUrlMessage) {
+        if (currentStickyUrlMessage) {
+            currentStickyUrlMessage.classList.remove('sticky');
+        }
+        urlToStick.classList.add('sticky');
+        currentStickyUrlMessage = urlToStick;
+    }
+}
 
 // ===== DOM ELEMENTS =====
 const DOM = {
@@ -538,7 +634,39 @@ class EventFormatter {
             return value;
         };
 
-        return JSON.stringify(parseNestedJson(obj), null, indent);
+        // Custom formatter without quotes on keys but with quotes on values
+        const formatWithoutKeyQuotes = (obj, currentIndent = 0) => {
+            const indentStr = ' '.repeat(currentIndent);
+            const nextIndentStr = ' '.repeat(currentIndent + indent);
+            
+            if (Array.isArray(obj)) {
+                if (obj.length === 0) return '[]';
+                const items = obj.map(item => 
+                    nextIndentStr + formatWithoutKeyQuotes(item, currentIndent + indent)
+                );
+                return '[\n' + items.join(',\n') + '\n' + indentStr + ']';
+            }
+            
+            if (typeof obj === 'object' && obj !== null) {
+                const entries = Object.entries(obj);
+                if (entries.length === 0) return '{}';
+                
+                const items = entries.map(([key, value]) => {
+                    const formattedValue = formatWithoutKeyQuotes(value, currentIndent + indent);
+                    return `${nextIndentStr}${key}: ${formattedValue}`;
+                });
+                
+                return '{\n' + items.join(',\n') + '\n' + indentStr + '}';
+            }
+            
+            // For primitive values, return with quotes if string, without if number/boolean
+            if (typeof obj === 'string') {
+                return `"${obj}"`;
+            }
+            return String(obj);
+        };
+
+        return formatWithoutKeyQuotes(parseNestedJson(obj));
     }
 
     // Standardized event detail formatting with consistent sections
@@ -1788,6 +1916,14 @@ function renderMessage(message, messageType, icon, isBold, isNewPage, details, e
     msg.style.display = shouldShow ? 'block' : 'none';
 
     DOM.contentMessages.appendChild(msg);
+    
+    // Make URL change messages sticky
+    if (isUrlChange && extraClasses.includes('url-change-separator')) {
+        makeStickyUrlMessage(msg);
+        // Clean up old sticky messages after a short delay to allow DOM to update
+        setTimeout(() => removeStickyFromOldUrlMessages(), 100);
+    }
+    
     if (shouldShow && !userInteracting) {
         msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -2478,6 +2614,9 @@ function initializeEventListeners() {
 
     // Clear output
     document.getElementById('clearOutputBtn')?.addEventListener('click', () => {
+        // Reset sticky URL message state
+        currentStickyUrlMessage = null;
+        
         DOM.contentMessages.innerHTML = `<div class="empty-state">
             <div class="empty-icon">📊</div>
             <div>Waiting for GA4 and marketing pixel events...</div>
@@ -2530,6 +2669,11 @@ function initializeEventListeners() {
 
     DOM.contentMessages?.addEventListener('scroll', () => {
         updateNavigationButtons();
+        // Handle sticky URL messages during scrolling with throttling
+        if (stickyScrollThrottle) {
+            clearTimeout(stickyScrollThrottle);
+        }
+        stickyScrollThrottle = setTimeout(handleStickyUrlOnScroll, 16); // ~60fps
     });
 
     // Settings panel
